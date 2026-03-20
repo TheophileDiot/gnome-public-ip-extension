@@ -7,6 +7,7 @@ import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/ex
 const SETTINGS_COMPACT_MODE = 'compact-mode';
 const SETTINGS_REFRESH_RATE = 'refresh-rate';
 const SETTINGS_POSITION = 'position-in-panel';
+const SETTINGS_SHOW_MAP = 'show-map';
 
 export default class PublicIPPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -49,6 +50,20 @@ export default class PublicIPPreferences extends ExtensionPreferences {
         });
         displayGroup.add(positionRow);
 
+        // Privacy settings
+        const privacyGroup = new Adw.PreferencesGroup({
+            title: 'Privacy',
+        });
+        page.add(privacyGroup);
+
+        const mapRow = new Adw.SwitchRow({
+            title: 'Show map tile',
+            subtitle: 'Fetches a tile from OpenStreetMap, which reveals approximate location to a third party',
+        });
+        settings.bind(SETTINGS_SHOW_MAP, mapRow, 'active',
+            Gio.SettingsBindFlags.DEFAULT);
+        privacyGroup.add(mapRow);
+
         // Refresh settings
         const refreshGroup = new Adw.PreferencesGroup({
             title: 'Refresh',
@@ -57,7 +72,7 @@ export default class PublicIPPreferences extends ExtensionPreferences {
 
         const adjustment = new Gtk.Adjustment({
             lower: 30,
-            upper: 30000,
+            upper: 86400,
             step_increment: 10,
             page_increment: 100,
             value: settings.get_int(SETTINGS_REFRESH_RATE),

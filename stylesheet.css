@@ -4,7 +4,6 @@
 }
 
 .ip-info-key {
-  font-weight: bold;
   color: rgba(255, 255, 255, 0.5);
 }
 
@@ -14,4 +13,14 @@
 
 .ip-info-value {
   color: rgba(255, 255, 255, 0.95);
+}
+
+.vpn-status-active {
+  color: #2ec27e;
+  font-weight: bold;
+}
+
+.vpn-status-inactive {
+  color: #e5a50a;
+  font-weight: bold;
 }
