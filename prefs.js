@@ -12,6 +12,7 @@ const SETTINGS_SHOW_MAP = 'show-map';
 const SETTINGS_SHOW_CIDR = 'show-cidr-prefix';
 const SETTINGS_HIDDEN_IFACES = 'hidden-interfaces';
 const SETTINGS_NOTIFY_IP_CHANGE = 'notify-ip-change';
+const SETTINGS_COPY_CIDR = 'copy-cidr';
 
 const BUILTIN_IGNORED = ['docker', 'br-', 'veth', 'virbr', 'lo'];
 
@@ -72,6 +73,14 @@ export default class PublicIPPreferences extends ExtensionPreferences {
             settings.set_enum(SETTINGS_POSITION, positionRow.selected);
         });
         displayGroup.add(positionRow);
+
+        const copyCidrRow = new Adw.SwitchRow({
+            title: 'Copy with CIDR prefix',
+            subtitle: 'Include the network prefix when copying local IPs (e.g. 192.168.1.5/24)',
+        });
+        settings.bind(SETTINGS_COPY_CIDR, copyCidrRow, 'active',
+            Gio.SettingsBindFlags.DEFAULT);
+        displayGroup.add(copyCidrRow);
 
         // Network interfaces
         const ifaceGroup = new Adw.PreferencesGroup({

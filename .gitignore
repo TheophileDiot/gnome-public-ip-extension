@@ -1,2 +1,9 @@
+schemas/gschemas.compiled
 icons/.*
 icons/latest_map.png
+*.zip
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

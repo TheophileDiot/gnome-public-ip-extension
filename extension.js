@@ -20,6 +20,8 @@ const SETTINGS_SHOW_MAP = 'show-map';
 const SETTINGS_SHOW_CIDR = 'show-cidr-prefix';
 const SETTINGS_HIDDEN_IFACES = 'hidden-interfaces';
 const SETTINGS_NOTIFY_IP_CHANGE = 'notify-ip-change';
+const SETTINGS_COPY_CIDR = 'copy-cidr';
+const POSITION_NAMES = ['left', 'center', 'right'];
 
 // Build reverse mapping: English country name -> ISO 3166-1 alpha-2 code
 const COUNTRY_TO_CODE = {};
@@ -65,12 +67,17 @@ function _latLonToTile(lat, lon, zoom) {
 }
 
 function _ensureCacheDir() {
-    const dir = Gio.File.new_for_path(
-        GLib.build_filenamev([GLib.get_user_cache_dir(), 'public-ip-extension'])
-    );
-    if (!dir.query_exists(null))
-        dir.make_directory_with_parents(null);
-    return dir.get_path();
+    try {
+        const dir = Gio.File.new_for_path(
+            GLib.build_filenamev([GLib.get_user_cache_dir(), 'public-ip-extension'])
+        );
+        if (!dir.query_exists(null))
+            dir.make_directory_with_parents(null);
+        return dir.get_path();
+    } catch (e) {
+        console.error(`[Public IP] Cache dir creation failed: ${e.message}`);
+        return GLib.build_filenamev([GLib.get_user_cache_dir(), 'public-ip-extension']);
+    }
 }
 
 // Detect VPN provider from organization/ASN name
@@ -180,12 +187,13 @@ class IPMenu extends PanelMenu.Button {
         this._settings = extension.getSettings();
         this._textureCache = St.TextureCache.get_default();
         this._session = new Soup.Session();
-        this._session.set_user_agent('GNOME-Public-IP-Extension/23');
+        this._session.set_user_agent(`GNOME-Public-IP-Extension/${extension.metadata.version} (+${extension.metadata.url})`);
         this._session.timeout = 30;
         this._cancellable = new Gio.Cancellable();
         this._updating = false;
         this._pendingUpdate = false;
         this._destroyed = false;
+        this._timerId = null;
         this._currentIPv4 = null;
         this._currentIPv6 = null;
         this._firstUpdate = true;
@@ -193,22 +201,24 @@ class IPMenu extends PanelMenu.Button {
 
         this._compactMode = this._settings.get_boolean(SETTINGS_COMPACT_MODE);
         this._refreshRate = Math.max(30, this._settings.get_int(SETTINGS_REFRESH_RATE));
-        this._menuPosition = this._settings.get_string(SETTINGS_POSITION);
+        this._menuPosition = POSITION_NAMES[this._settings.get_enum(SETTINGS_POSITION)] || 'right';
         this._showMap = this._settings.get_boolean(SETTINGS_SHOW_MAP);
         this._showCidr = this._settings.get_boolean(SETTINGS_SHOW_CIDR);
         this._hiddenIfaces = this._settings.get_strv(SETTINGS_HIDDEN_IFACES);
         this._notifyIpChange = this._settings.get_boolean(SETTINGS_NOTIFY_IP_CHANGE);
+        this._copyCidr = this._settings.get_boolean(SETTINGS_COPY_CIDR);
 
         // Panel button content
         const hbox = new St.BoxLayout({style_class: 'panel-status-menu-box'});
 
         this._icon = new St.Icon({
-            gicon: Gio.icon_new_for_string(`${extension.path}/icons/flags/US.png`),
+            icon_name: 'network-idle-symbolic',
             icon_size: ICON_SIZE,
+            accessible_name: 'Loading',
         });
 
         this._label = new St.Label({
-            text: 'N/A',
+            text: '...',
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._label.visible = !this._compactMode;
@@ -235,6 +245,7 @@ class IPMenu extends PanelMenu.Button {
         this._statusBox.add_child(this._statusIcon);
         this._statusBox.add_child(this._statusLabel);
         this._statusItem.add_child(this._statusBox);
+        this._statusItem.accessible_name = 'Security: Checking connection';
         this.menu.addMenuItem(this._statusItem);
 
         // Local network section
@@ -248,7 +259,7 @@ class IPMenu extends PanelMenu.Button {
 
         this._ipv4Item = new PopupMenu.PopupBaseMenuItem();
         this._ipv4Item.add_child(new St.Label({style_class: 'ip-info-key', text: 'IPv4  '}));
-        this._ipv4Label = new St.Label({style_class: 'ip-address', text: 'N/A', x_expand: true});
+        this._ipv4Label = new St.Label({style_class: 'ip-address', text: '...', x_expand: true});
         this._ipv4Item.add_child(this._ipv4Label);
         this._ipv4Item.add_child(new St.Icon({icon_name: 'edit-copy-symbolic', icon_size: 14, style_class: 'ip-copy-icon'}));
         this._ipv4Item.connect('activate', () => this._copyToClipboard(this._currentIPv4));
@@ -256,14 +267,14 @@ class IPMenu extends PanelMenu.Button {
 
         this._ipv6Item = new PopupMenu.PopupBaseMenuItem();
         this._ipv6Item.add_child(new St.Label({style_class: 'ip-info-key', text: 'IPv6  '}));
-        this._ipv6Label = new St.Label({style_class: 'ip-address-v6', text: 'N/A', x_expand: true});
+        this._ipv6Label = new St.Label({style_class: 'ip-address-v6', text: '...', x_expand: true});
         this._ipv6Item.add_child(this._ipv6Label);
         this._ipv6Item.add_child(new St.Icon({icon_name: 'edit-copy-symbolic', icon_size: 14, style_class: 'ip-copy-icon'}));
         this._ipv6Item.connect('activate', () => this._copyToClipboard(this._currentIPv6));
         this.menu.addMenuItem(this._ipv6Item);
 
         // Location + map section
-        const geoItem = new PopupMenu.PopupBaseMenuItem({reactive: false});
+        this._geoItem = new PopupMenu.PopupBaseMenuItem({reactive: false});
         const geoContainer = new St.BoxLayout();
 
         // Map tile
@@ -275,6 +286,7 @@ class IPMenu extends PanelMenu.Button {
             this._mapInfo.add_child(new St.Icon({
                 gicon: Gio.icon_new_for_string(`${extension.path}/icons/default_map.png`),
                 icon_size: 160,
+                accessible_name: 'Map: loading',
             }));
         }
 
@@ -296,15 +308,15 @@ class IPMenu extends PanelMenu.Button {
         geoBox.add_child(orgRow);
 
         geoContainer.add_child(geoBox);
-        geoItem.add_child(geoContainer);
-        this.menu.addMenuItem(geoItem);
+        this._geoItem.add_child(geoContainer);
+        this.menu.addMenuItem(this._geoItem);
 
         // Actions
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        const refreshItem = new PopupMenu.PopupMenuItem('Refresh');
-        refreshItem.connect('activate', () => this._update());
-        this.menu.addMenuItem(refreshItem);
+        this._refreshItem = new PopupMenu.PopupMenuItem('Refresh');
+        this._refreshItem.connect('activate', () => this._update());
+        this.menu.addMenuItem(this._refreshItem);
 
         const prefs = new PopupMenu.PopupMenuItem('Preferences...');
         prefs.connect('activate', () => this._extension.openPreferences());
@@ -327,17 +339,19 @@ class IPMenu extends PanelMenu.Button {
                 this._startTimer();
                 break;
             case SETTINGS_POSITION:
-                this._menuPosition = this._settings.get_string(SETTINGS_POSITION);
+                this._menuPosition = POSITION_NAMES[this._settings.get_enum(SETTINGS_POSITION)] || 'right';
                 this._resetPanelPos();
                 break;
             case SETTINGS_SHOW_MAP:
                 this._showMap = this._settings.get_boolean(SETTINGS_SHOW_MAP);
                 this._mapInfo.visible = this._showMap;
+                if (this._showMap && (this._currentIPv4 || this._currentIPv6))
+                    this._update();
                 break;
             case SETTINGS_SHOW_CIDR:
                 this._showCidr = this._settings.get_boolean(SETTINGS_SHOW_CIDR);
                 if (this._showCidr)
-                    this._fetchPrefixes(this._currentIPv4, this._currentIPv6);
+                    this._fetchPrefixes(this._currentIPv4, this._currentIPv6).catch(() => {});
                 break;
             case SETTINGS_HIDDEN_IFACES:
                 this._hiddenIfaces = this._settings.get_strv(SETTINGS_HIDDEN_IFACES);
@@ -345,6 +359,10 @@ class IPMenu extends PanelMenu.Button {
                 break;
             case SETTINGS_NOTIFY_IP_CHANGE:
                 this._notifyIpChange = this._settings.get_boolean(SETTINGS_NOTIFY_IP_CHANGE);
+                break;
+            case SETTINGS_COPY_CIDR:
+                this._copyCidr = this._settings.get_boolean(SETTINGS_COPY_CIDR);
+                this._updateLocalIP();
                 break;
             }
         });
@@ -358,6 +376,28 @@ class IPMenu extends PanelMenu.Button {
         if (!text) return;
         St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
         Main.notify('Public IP', `Copied ${text} to clipboard`);
+    }
+
+    _updateAccessibleName(assessment) {
+        let name = '';
+        switch (assessment?.status) {
+        case STATUS_PROTECTED:
+            name = `VPN: ${assessment.vpnProvider}. `;
+            break;
+        case STATUS_LEAK:
+            name = 'Warning: IPv6 leak. ';
+            break;
+        case STATUS_EXPOSED:
+            name = 'No VPN. ';
+            break;
+        case STATUS_OFFLINE:
+            name = 'Offline. ';
+            break;
+        }
+        name += `IP: ${this._currentIPv4 || this._currentIPv6 || 'unknown'}`;
+        const loc = this._locationLabel?.text;
+        if (loc) name += `, ${loc}`;
+        this.accessible_name = name;
     }
 
     _updateLocalIP() {
@@ -391,12 +431,13 @@ class IPMenu extends PanelMenu.Button {
                 const isV6 = parts[2] === 'inet6';
                 const addrField = parts[3] || '';
                 const ip = addrField.split('/')[0];
+                const cidr = addrField; // e.g. "192.168.1.5/24"
 
                 if (!ip) continue;
 
                 if (!ifaces.has(iface))
                     ifaces.set(iface, []);
-                ifaces.get(iface).push({ip, isV6});
+                ifaces.get(iface).push({ip, cidr, isV6});
             }
 
             const sepIndex = this.menu._getMenuItems().indexOf(this._localSeparator);
@@ -424,10 +465,11 @@ class IPMenu extends PanelMenu.Button {
                 }));
                 this.menu.addMenuItem(header, insertPos);
                 this._localItems.push(header);
+                header.accessible_name = `Interface: ${iface}`;
                 insertPos++;
 
                 // IP rows under this interface
-                for (const {ip, isV6} of addrs) {
+                for (const {ip, cidr, isV6} of addrs) {
                     const item = new PopupMenu.PopupBaseMenuItem();
                     item.add_child(new St.Label({
                         style_class: 'ip-info-key',
@@ -435,7 +477,7 @@ class IPMenu extends PanelMenu.Button {
                     }));
                     item.add_child(new St.Label({
                         style_class: isV6 ? 'ip-address-v6' : 'ip-address',
-                        text: ip,
+                        text: cidr,
                         x_expand: true,
                     }));
                     item.add_child(new St.Icon({
@@ -443,13 +485,24 @@ class IPMenu extends PanelMenu.Button {
                         icon_size: 14,
                         style_class: 'ip-copy-icon',
                     }));
-                    item.connect('activate', () => this._copyToClipboard(ip));
+                    item.connect('activate', () => this._copyToClipboard(this._copyCidr ? cidr : ip));
+                    item.accessible_name = `${iface} ${isV6 ? 'IPv6' : 'IPv4'}: ${cidr}. Activate to copy.`;
                     this.menu.addMenuItem(item, insertPos);
                     this._localItems.push(item);
                     insertPos++;
                 }
 
                 first = false;
+            }
+
+            if (ifaces.size === 0) {
+                const emptyItem = new PopupMenu.PopupBaseMenuItem({reactive: false});
+                emptyItem.add_child(new St.Label({
+                    style_class: 'ip-info-key',
+                    text: 'No interfaces',
+                }));
+                this.menu.addMenuItem(emptyItem, insertPos);
+                this._localItems.push(emptyItem);
             }
         } catch (_e) {
             // Silent fail — local IPs are non-critical
@@ -473,10 +526,14 @@ class IPMenu extends PanelMenu.Button {
     }
 
     _resetPanelPos() {
-        if (this.container.get_parent())
-            this.container.get_parent().remove_child(this.container);
-        Main.panel.statusArea['ip-menu'] = null;
-        Main.panel.addToStatusArea('ip-menu', this, 1, this._menuPosition);
+        try {
+            if (this.container.get_parent())
+                this.container.get_parent().remove_child(this.container);
+            Main.panel.statusArea['ip-menu'] = null;
+            Main.panel.addToStatusArea('ip-menu', this, 1, this._menuPosition);
+        } catch (e) {
+            console.error(`[Public IP] Panel position reset failed: ${e.message}`);
+        }
     }
 
     _updateMapTile() {
@@ -488,6 +545,7 @@ class IPMenu extends PanelMenu.Button {
                 -1, 160, 1, scaleFactor
             )
         );
+        this._mapInfo.accessible_name = `Map: ${this._locationLabel?.text || 'unknown location'}`;
     }
 
     _assessSecurity(ipv4Data, ipv6Data) {
@@ -553,6 +611,7 @@ class IPMenu extends PanelMenu.Button {
     _updateSecurityBanner(assessment) {
         this._statusIcon.icon_name = assessment.icon;
         this._statusLabel.text = assessment.text;
+        this._statusItem.accessible_name = `Security: ${assessment.text}`;
 
         // Update banner style
         this._statusBox.style_class = 'status-banner';
@@ -575,7 +634,7 @@ class IPMenu extends PanelMenu.Button {
     async _fetchPrefix(ip) {
         try {
             const text = await this._fetchText(
-                `https://stat.ripe.net/data/network-info/data.json?resource=${ip}`, 0
+                `https://stat.ripe.net/data/network-info/data.json?resource=${encodeURIComponent(ip)}`, 0
             );
             const data = JSON.parse(text);
             const prefix = data?.data?.prefix;
@@ -599,10 +658,14 @@ class IPMenu extends PanelMenu.Button {
         const v4Prefix = results[0].status === 'fulfilled' ? results[0].value : null;
         const v6Prefix = results[1].status === 'fulfilled' ? results[1].value : null;
 
-        if (v4Prefix && this._currentIPv4)
+        if (v4Prefix && this._currentIPv4) {
             this._ipv4Label.text = `${this._currentIPv4}  ${v4Prefix}`;
-        if (v6Prefix && this._currentIPv6)
+            this._ipv4Item.accessible_name = `Public IPv4: ${this._currentIPv4} ${v4Prefix}. Activate to copy.`;
+        }
+        if (v6Prefix && this._currentIPv6) {
             this._ipv6Label.text = `${this._currentIPv6}  ${v6Prefix}`;
+            this._ipv6Item.accessible_name = `Public IPv6: ${this._currentIPv6} ${v6Prefix}. Activate to copy.`;
+        }
     }
 
     async _fetchText(url, retries = 1) {
@@ -641,6 +704,13 @@ class IPMenu extends PanelMenu.Button {
         }
         this._updating = true;
         try {
+            // Reset banner to "checking" state during fetch
+            this._statusIcon.icon_name = 'emblem-synchronizing-symbolic';
+            this._statusLabel.text = 'Checking connection...';
+            this._statusBox.style_class = 'status-banner status-checking';
+            if (this._refreshItem)
+                this._refreshItem.label.text = 'Refreshing...';
+
             this._updateLocalIP();
 
             // Mullvad API: no-log, privacy-first VPN provider
@@ -676,9 +746,24 @@ class IPMenu extends PanelMenu.Button {
             if (!this._compactMode)
                 this._label.text = ipv4 || ipv6 || 'No Connection';
 
+            // Accessible names for IP rows
+            this._ipv4Item.accessible_name = ipv4
+                ? `Public IPv4: ${ipv4}. Activate to copy.`
+                : 'Public IPv4: Unavailable';
+            this._ipv6Item.accessible_name = ipv6
+                ? `Public IPv6: ${ipv6}. Activate to copy.`
+                : 'Public IPv6: Unavailable';
+
             // Security assessment (uses both IPv4 and IPv6 data)
             const assessment = this._assessSecurity(ipv4Data, ipv6Data);
             this._updateSecurityBanner(assessment);
+
+            // Update panel icon for offline state
+            if (assessment.status === STATUS_OFFLINE) {
+                this._icon.gicon = null;
+                this._icon.icon_name = 'network-offline-symbolic';
+                this._icon.accessible_name = 'Offline';
+            }
 
             const ipChanged = ipv4 !== this._currentIPv4
                 || ipv6 !== this._currentIPv6;
@@ -689,17 +774,18 @@ class IPMenu extends PanelMenu.Button {
                 const newIp = ipv4 || ipv6 || 'none';
                 let body = `${oldIp} → ${newIp}`;
                 if (assessment.status === STATUS_LEAK)
-                    body += '\n⚠ IPv6 leak detected!';
+                    body += '\nWarning: IPv6 leak detected!';
                 else if (assessment.status === STATUS_EXPOSED)
-                    body += '\n⚠ No VPN — direct connection';
+                    body += '\nWarning: No VPN, direct connection';
                 else if (assessment.status === STATUS_PROTECTED)
-                    body += `\n✓ Protected via ${assessment.vpnProvider}`;
+                    body += `\nProtected via ${assessment.vpnProvider}`;
                 Main.notify('IP Address Changed', body);
             }
 
             this._currentIPv4 = ipv4;
             this._currentIPv6 = ipv6;
             this._firstUpdate = false;
+            this._updateAccessibleName(assessment);
 
             if (!ipChanged)
                 return;
@@ -718,6 +804,8 @@ class IPMenu extends PanelMenu.Button {
                 this._locationLabel.text = city || country || '';
 
             this._orgLabel.text = geoData.organization || '';
+            this._geoItem.accessible_name =
+                `Location: ${this._locationLabel.text}. ISP: ${this._orgLabel.text}`;
 
             // Resolve country name to ISO code for flag icon
             if (country) {
@@ -726,6 +814,7 @@ class IPMenu extends PanelMenu.Button {
                     this._icon.gicon = Gio.icon_new_for_string(
                         `${this._extension.path}/icons/flags/${code}.png`
                     );
+                    this._icon.accessible_name = country;
                 }
             }
 
@@ -733,7 +822,7 @@ class IPMenu extends PanelMenu.Button {
 
             // Fetch CIDR prefix from RIPE STAT (opt-in, sends IP to third party)
             if (this._showCidr)
-                this._fetchPrefixes(ipv4, ipv6);
+                this._fetchPrefixes(ipv4, ipv6).catch(() => {});
 
             // Fetch map tile from OpenStreetMap (only if enabled)
             if (this._showMap
@@ -761,9 +850,17 @@ class IPMenu extends PanelMenu.Button {
                 }
             }
         } catch (e) {
-            if (!this._destroyed)
+            if (!this._destroyed) {
                 console.error(`[Public IP] Update failed: ${e.message}`);
+                this._updateSecurityBanner({
+                    status: STATUS_OFFLINE,
+                    icon: 'network-error-symbolic',
+                    text: 'Connection check failed',
+                });
+            }
         } finally {
+            if (this._refreshItem)
+                this._refreshItem.label.text = 'Refresh';
             this._updating = false;
             if (this._pendingUpdate && !this._destroyed) {
                 this._pendingUpdate = false;

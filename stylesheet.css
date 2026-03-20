@@ -31,52 +31,45 @@
 
 .status-offline .status-banner-text,
 .status-offline .status-banner-icon {
-  color: rgba(255, 255, 255, 0.5);
+  opacity: 0.5;
 }
 
 .status-checking .status-banner-text,
 .status-checking .status-banner-icon {
-  color: rgba(255, 255, 255, 0.5);
+  opacity: 0.5;
 }
 
 /* IP addresses */
-.ip-section {
-  spacing: 4px;
-}
-
-.ip-row {
-  spacing: 4px;
-}
-
 .ip-address {
   font-weight: bold;
   font-size: 1.1em;
-  color: rgba(255, 255, 255, 0.95);
+  opacity: 0.95;
 }
 
 .ip-address-v6 {
-  color: rgba(255, 255, 255, 0.75);
   font-size: 0.9em;
+  opacity: 0.75;
 }
 
 .ip-copy-icon {
-  color: rgba(255, 255, 255, 0.3);
+  opacity: 0.3;
 }
 
 .iface-header {
   font-weight: bold;
   font-size: 0.85em;
-  color: rgba(255, 255, 255, 0.6);
+  opacity: 0.6;
 }
 
 .iface-header-icon {
-  color: rgba(255, 255, 255, 0.4);
+  opacity: 0.4;
   margin-right: 6px;
 }
 
 /* Geo info */
 .ip-info-key {
-  color: rgba(255, 255, 255, 0.5);
+  font-weight: bold;
+  opacity: 0.55;
 }
 
 .ip-info-box {
@@ -85,5 +78,5 @@
 }
 
 .ip-info-value {
-  color: rgba(255, 255, 255, 0.95);
+  opacity: 0.95;
 }

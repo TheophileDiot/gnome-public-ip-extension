@@ -1,14 +1,50 @@
+# Public IP Address — GNOME Shell Extension
 
-##Public IP Address Gnome Extension
+Shows your public IP address with VPN detection, IPv6 leak warnings, and a security status banner in the GNOME Shell panel.
 
-This Gnome extension displays information about your public IP address (hostname, country, AS block etc) and a map image of the IP's geolocation. Useful if you use a VPN, or enjoy nerding out over where your internet traffic is traveling through.
+## Features
 
-Note: the ip data is not retrieved using HTTPS (because that requires a paid account with ipinfo.io), so if you're hiding from the NSA, I wouldn't rely on this extension to determine whether or not you are connected to a VPN.
+- **Public IP display** — IPv4 and IPv6 from Mullvad's API (privacy-first, no-log)
+- **Local IP display** — grouped by network interface, click to copy
+- **VPN detection** — Mullvad (confirmed), 40+ other providers (heuristic)
+- **Security banner** — green (VPN active), yellow (exposed), red (IPv6 leak)
+- **IP change notifications** — opt-in alerts with VPN status context
+- **Country flag** — in panel and popup
+- **Map tile** — opt-in, from OpenStreetMap
+- **CIDR prefix** — opt-in, from RIPE NCC
 
-Icons courtesy of http://gosquared.com
+## Requirements
 
-IP Data courtesy of from http://ipinfo.io/ and http://icanhazip.com
+- GNOME Shell 45, 46, or 47
 
-Map image courtesy of Google Maps.
+## Install
 
-![screenshot](https://raw.githubusercontent.com/growing/files/master/screenshot.png)
+### From source
+
+    make install
+
+Then restart GNOME Shell (log out/in on Wayland, Alt+F2 r on X11).
+
+### Manual
+
+    make zip
+    gnome-extensions install public-ip-address@holdingitwrong.com.zip
+
+## Privacy
+
+The extension contacts these services:
+
+| Service                                | Data sent            | When                | Opt-out                                  |
+| -------------------------------------- | -------------------- | ------------------- | ---------------------------------------- |
+| Mullvad API (am.i.mullvad.net)         | Source IP (implicit) | Every refresh cycle | Cannot disable (core function)           |
+| OpenStreetMap (tile.openstreetmap.org) | Lat/lon in tile URL  | On IP change        | Preferences > Privacy > Show map tile    |
+| RIPE NCC (stat.ripe.net)               | IP as URL parameter  | On IP change        | Preferences > Privacy > Show CIDR prefix |
+
+## Credits
+
+- Flag icons: GoSquared
+- Original extension: growing/gnome-public-ip-extension
+
+## License
+
+GPL-2.0-or-later

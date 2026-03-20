@@ -1,9 +1,9 @@
 {
   "shell-version": ["45", "46", "47"],
   "uuid": "public-ip-address@holdingitwrong.com",
-  "version": 23,
+  "version": 24,
   "name": "Public IP Address",
-  "description": "Displays information about your public IP address (hostname, country, AS block etc) and a map image of the IP's geolocation",
+  "description": "Shows your public IP address with VPN detection, IPv6 leak warnings, and a security status banner. Displays local and public IPs (IPv4/IPv6), country flag, city, ISP, and optional map tile. Click any IP to copy. Uses Mullvad's privacy-respecting API.",
   "settings-schema": "org.gnome.shell.extensions.public-ip-address",
-  "url": "https://github.com/growing/gnome-public-ip-extension"
+  "url": "https://github.com/TheophileDiot/gnome-public-ip-extension"
 }

@@ -23,7 +23,7 @@
       <description>Where to place the indicator in the GNOME Shell panel.</description>
     </key>
     <key type="b" name="show-map">
-      <default>true</default>
+      <default>false</default>
       <summary>Show map tile</summary>
       <description>Show a map tile in the popup menu. When enabled, fetches a tile from OpenStreetMap which reveals approximate location to a third party.</description>
     </key>
@@ -36,6 +36,11 @@
       <default>[]</default>
       <summary>Hidden network interfaces</summary>
       <description>List of network interface names to hide from the local IPs section.</description>
+    </key>
+    <key type="b" name="copy-cidr">
+      <default>true</default>
+      <summary>Copy CIDR notation</summary>
+      <description>When copying a local IP address, include the network prefix (e.g. 192.168.1.5/24 instead of 192.168.1.5).</description>
     </key>
     <key type="b" name="notify-ip-change">
       <default>false</default>
