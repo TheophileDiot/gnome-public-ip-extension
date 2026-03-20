@@ -27,5 +27,20 @@
       <summary>Show map tile</summary>
       <description>Show a map tile in the popup menu. When enabled, fetches a tile from OpenStreetMap which reveals approximate location to a third party.</description>
     </key>
+    <key type="b" name="show-cidr-prefix">
+      <default>false</default>
+      <summary>Show CIDR prefix</summary>
+      <description>Show the network prefix (e.g. /24) next to each IP address. Fetches data from RIPE NCC (stat.ripe.net), which sends your IP to a third party.</description>
+    </key>
+    <key type="as" name="hidden-interfaces">
+      <default>[]</default>
+      <summary>Hidden network interfaces</summary>
+      <description>List of network interface names to hide from the local IPs section.</description>
+    </key>
+    <key type="b" name="notify-ip-change">
+      <default>false</default>
+      <summary>Notify on IP change</summary>
+      <description>Show a desktop notification when the public IP address changes. Includes VPN status and leak warnings.</description>
+    </key>
   </schema>
 </schemalist>

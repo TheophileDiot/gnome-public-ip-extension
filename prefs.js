@@ -1,6 +1,7 @@
 import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
@@ -8,6 +9,30 @@ const SETTINGS_COMPACT_MODE = 'compact-mode';
 const SETTINGS_REFRESH_RATE = 'refresh-rate';
 const SETTINGS_POSITION = 'position-in-panel';
 const SETTINGS_SHOW_MAP = 'show-map';
+const SETTINGS_SHOW_CIDR = 'show-cidr-prefix';
+const SETTINGS_HIDDEN_IFACES = 'hidden-interfaces';
+const SETTINGS_NOTIFY_IP_CHANGE = 'notify-ip-change';
+
+const BUILTIN_IGNORED = ['docker', 'br-', 'veth', 'virbr', 'lo'];
+
+function _discoverInterfaces() {
+    try {
+        const [ok, out] = GLib.spawn_command_line_sync('ip -o addr show scope global');
+        if (!ok) return [];
+        const seen = new Set();
+        const lines = new TextDecoder().decode(out).split('\n');
+        for (const line of lines) {
+            if (!line.trim()) continue;
+            const iface = line.trim().split(/\s+/)[1];
+            if (BUILTIN_IGNORED.some(p => iface.startsWith(p)))
+                continue;
+            seen.add(iface);
+        }
+        return [...seen];
+    } catch (_e) {
+        return [];
+    }
+}
 
 export default class PublicIPPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -24,7 +49,6 @@ export default class PublicIPPreferences extends ExtensionPreferences {
         });
         page.add(displayGroup);
 
-        // Compact mode toggle
         const compactRow = new Adw.SwitchRow({
             title: 'Only show flag in toolbar',
             subtitle: 'Hide the IP address text from the panel',
@@ -33,7 +57,6 @@ export default class PublicIPPreferences extends ExtensionPreferences {
             Gio.SettingsBindFlags.DEFAULT);
         displayGroup.add(compactRow);
 
-        // Panel position selector
         const positionModel = new Gtk.StringList();
         positionModel.append('Left');
         positionModel.append('Center');
@@ -50,6 +73,38 @@ export default class PublicIPPreferences extends ExtensionPreferences {
         });
         displayGroup.add(positionRow);
 
+        // Network interfaces
+        const ifaceGroup = new Adw.PreferencesGroup({
+            title: 'Network Interfaces',
+            description: 'Choose which interfaces to show in the local IPs section',
+        });
+        page.add(ifaceGroup);
+
+        const ifaces = _discoverInterfaces();
+        const hidden = settings.get_strv(SETTINGS_HIDDEN_IFACES);
+
+        if (ifaces.length === 0) {
+            ifaceGroup.set_description('No network interfaces detected');
+        }
+
+        for (const iface of ifaces) {
+            const row = new Adw.SwitchRow({
+                title: iface,
+                active: !hidden.includes(iface),
+            });
+            row.connect('notify::active', () => {
+                const current = settings.get_strv(SETTINGS_HIDDEN_IFACES);
+                if (row.active) {
+                    settings.set_strv(SETTINGS_HIDDEN_IFACES,
+                        current.filter(i => i !== iface));
+                } else {
+                    if (!current.includes(iface))
+                        settings.set_strv(SETTINGS_HIDDEN_IFACES, [...current, iface]);
+                }
+            });
+            ifaceGroup.add(row);
+        }
+
         // Privacy settings
         const privacyGroup = new Adw.PreferencesGroup({
             title: 'Privacy',
@@ -63,6 +118,28 @@ export default class PublicIPPreferences extends ExtensionPreferences {
         settings.bind(SETTINGS_SHOW_MAP, mapRow, 'active',
             Gio.SettingsBindFlags.DEFAULT);
         privacyGroup.add(mapRow);
+
+        const cidrRow = new Adw.SwitchRow({
+            title: 'Show CIDR prefix',
+            subtitle: 'Fetches network prefix from RIPE NCC (stat.ripe.net), which sends your IP to a third party',
+        });
+        settings.bind(SETTINGS_SHOW_CIDR, cidrRow, 'active',
+            Gio.SettingsBindFlags.DEFAULT);
+        privacyGroup.add(cidrRow);
+
+        // Notifications
+        const notifyGroup = new Adw.PreferencesGroup({
+            title: 'Notifications',
+        });
+        page.add(notifyGroup);
+
+        const notifyRow = new Adw.SwitchRow({
+            title: 'Notify on IP change',
+            subtitle: 'Show a desktop notification when the public IP address changes, with VPN status and leak warnings',
+        });
+        settings.bind(SETTINGS_NOTIFY_IP_CHANGE, notifyRow, 'active',
+            Gio.SettingsBindFlags.DEFAULT);
+        notifyGroup.add(notifyRow);
 
         // Refresh settings
         const refreshGroup = new Adw.PreferencesGroup({
