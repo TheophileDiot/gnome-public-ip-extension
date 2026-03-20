@@ -8,15 +8,44 @@
   <schema path="/org/gnome/shell/extensions/public-ip-address/" id="org.gnome.shell.extensions.public-ip-address">
     <key type="i" name="refresh-rate">
       <default>30</default>
-      <summary>Check every x seconds</summary>
+      <range min="30" max="86400"/>
+      <summary>Refresh interval in seconds</summary>
+      <description>How often to check the public IP address. Minimum 30 seconds to avoid API abuse.</description>
     </key>
     <key type="b" name="compact-mode">
       <default>false</default>
       <summary>Only show flag in toolbar</summary>
+      <description>Hide the IP address text from the panel and only show the country flag icon.</description>
     </key>
     <key name="position-in-panel" enum="org.gnome.shell.extensions.public-ip-address.position">
       <default>'right'</default>
       <summary>Position in Panel</summary>
+      <description>Where to place the indicator in the GNOME Shell panel.</description>
+    </key>
+    <key type="b" name="show-map">
+      <default>false</default>
+      <summary>Show map tile</summary>
+      <description>Show a map tile in the popup menu. When enabled, fetches a tile from OpenStreetMap which reveals approximate location to a third party.</description>
+    </key>
+    <key type="b" name="show-cidr-prefix">
+      <default>false</default>
+      <summary>Show CIDR prefix</summary>
+      <description>Show the network prefix (e.g. /24) next to each IP address. Fetches data from RIPE NCC (stat.ripe.net), which sends your IP to a third party.</description>
+    </key>
+    <key type="as" name="hidden-interfaces">
+      <default>[]</default>
+      <summary>Hidden network interfaces</summary>
+      <description>List of network interface names to hide from the local IPs section.</description>
+    </key>
+    <key type="b" name="copy-cidr">
+      <default>true</default>
+      <summary>Copy CIDR notation</summary>
+      <description>When copying a local IP address, include the network prefix (e.g. 192.168.1.5/24 instead of 192.168.1.5).</description>
+    </key>
+    <key type="b" name="notify-ip-change">
+      <default>false</default>
+      <summary>Notify on IP change</summary>
+      <description>Show a desktop notification when the public IP address changes. Includes VPN status and leak warnings.</description>
     </key>
   </schema>
 </schemalist>

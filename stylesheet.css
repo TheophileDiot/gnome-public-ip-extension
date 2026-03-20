@@ -3,15 +3,80 @@
   padding-top: 4px;
 }
 
+/* Security status banner */
+.status-banner {
+  border-radius: 6px;
+  padding: 6px 10px;
+  spacing: 8px;
+}
+
+.status-banner-text {
+  font-weight: bold;
+}
+
+.status-protected .status-banner-text,
+.status-protected .status-banner-icon {
+  color: #2ec27e;
+}
+
+.status-leak .status-banner-text,
+.status-leak .status-banner-icon {
+  color: #e01b24;
+}
+
+.status-exposed .status-banner-text,
+.status-exposed .status-banner-icon {
+  color: #e5a50a;
+}
+
+.status-offline .status-banner-text,
+.status-offline .status-banner-icon {
+  opacity: 0.5;
+}
+
+.status-checking .status-banner-text,
+.status-checking .status-banner-icon {
+  opacity: 0.5;
+}
+
+/* IP addresses */
+.ip-address {
+  font-weight: bold;
+  font-size: 1.1em;
+  opacity: 0.95;
+}
+
+.ip-address-v6 {
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+
+.ip-copy-icon {
+  opacity: 0.3;
+}
+
+.iface-header {
+  font-weight: bold;
+  font-size: 0.85em;
+  opacity: 0.6;
+}
+
+.iface-header-icon {
+  opacity: 0.4;
+  margin-right: 6px;
+}
+
+/* Geo info */
 .ip-info-key {
   font-weight: bold;
-  color: rgba(255, 255, 255, 0.5);
+  opacity: 0.55;
 }
 
 .ip-info-box {
   padding-left: 20px;
+  spacing: 2px;
 }
 
 .ip-info-value {
-  color: rgba(255, 255, 255, 0.95);
+  opacity: 0.95;
 }
