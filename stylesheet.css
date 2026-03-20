@@ -4,7 +4,8 @@
 }
 
 .ip-info-key {
-  color: #838A85;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .ip-info-box {
@@ -12,5 +13,5 @@
 }
 
 .ip-info-value {
-  color: #FFF;
+  color: rgba(255, 255, 255, 0.95);
 }

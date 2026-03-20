@@ -1,97 +1,77 @@
-/* -*- mode: js2; js2-basic-offset: 4; indent-tabs-mode: nil -*- */
+import Adw from 'gi://Adw';
+import Gtk from 'gi://Gtk';
+import Gio from 'gi://Gio';
 
-const Gio = imports.gi.Gio;
-const Gtk = imports.gi.Gtk;
-const GObject = imports.gi.GObject;
-const Lang = imports.lang;
-
-const ExtensionUtils = imports.misc.extensionUtils;
-const Me = ExtensionUtils.getCurrentExtension();
-const Convenience = Me.imports.convenience;
-
-const Gettext = imports.gettext.domain('gnome-shell-extensions');
-const _ = Gettext.gettext;
+import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 const SETTINGS_COMPACT_MODE = 'compact-mode';
 const SETTINGS_REFRESH_RATE = 'refresh-rate';
 const SETTINGS_POSITION = 'position-in-panel';
 
-const IPMenuSettingsWidget = new GObject.Class({
-  Name: 'IPMenu.Prefs.IPMenuSettingsWidget',
-  GTypeName: 'IPMenuSettingsWidget',
-  Extends: Gtk.Grid,
+export default class PublicIPPreferences extends ExtensionPreferences {
+    fillPreferencesWindow(window) {
+        const settings = this.getSettings();
 
-  _init: function() {
-    this.parent();
-    this.margin = 100; //this is a fudge to get the settings to center as I couldn't work out how to resize the parent dialog
-    this.row_spacing = 6;
+        const page = new Adw.PreferencesPage({
+            title: 'General',
+            icon_name: 'preferences-system-symbolic',
+        });
 
-    this.orientation = Gtk.Orientation.VERTICAL;
+        // Display settings
+        const displayGroup = new Adw.PreferencesGroup({
+            title: 'Display',
+        });
+        page.add(displayGroup);
 
-    this._settings = Convenience.getSettings(Me.metadata['settings-schema']);
+        // Compact mode toggle
+        const compactRow = new Adw.SwitchRow({
+            title: 'Only show flag in toolbar',
+            subtitle: 'Hide the IP address text from the panel',
+        });
+        settings.bind(SETTINGS_COMPACT_MODE, compactRow, 'active',
+            Gio.SettingsBindFlags.DEFAULT);
+        displayGroup.add(compactRow);
 
-    let vbox = new Gtk.VBox();
-    this.add(vbox);
+        // Panel position selector
+        const positionModel = new Gtk.StringList();
+        positionModel.append('Left');
+        positionModel.append('Center');
+        positionModel.append('Right');
 
-    let checkContainer = new Gtk.HBox({spacing: 5});
-    let checkLabel = new Gtk.Label({label: _('Only show flag in Toolbar')});
-    let checkButton = new Gtk.CheckButton();
+        const positionRow = new Adw.ComboRow({
+            title: 'Toolbar position',
+            subtitle: 'Where to place the indicator in the panel',
+            model: positionModel,
+        });
+        positionRow.set_selected(settings.get_enum(SETTINGS_POSITION));
+        positionRow.connect('notify::selected', () => {
+            settings.set_enum(SETTINGS_POSITION, positionRow.selected);
+        });
+        displayGroup.add(positionRow);
 
-    checkContainer.pack_start(checkLabel, 0,0,0);
-    checkContainer.pack_end(checkButton, 0,0,0);
+        // Refresh settings
+        const refreshGroup = new Adw.PreferencesGroup({
+            title: 'Refresh',
+        });
+        page.add(refreshGroup);
 
-    this._settings.bind(SETTINGS_COMPACT_MODE, checkButton, 'active', Gio.SettingsBindFlags.DEFAULT);
+        const adjustment = new Gtk.Adjustment({
+            lower: 30,
+            upper: 30000,
+            step_increment: 10,
+            page_increment: 100,
+            value: settings.get_int(SETTINGS_REFRESH_RATE),
+        });
 
-    vbox.add(checkContainer);
+        const refreshRow = new Adw.SpinRow({
+            title: 'Refresh interval',
+            subtitle: 'How often to check for IP changes (seconds)',
+            adjustment,
+        });
+        settings.bind(SETTINGS_REFRESH_RATE, adjustment, 'value',
+            Gio.SettingsBindFlags.DEFAULT);
+        refreshGroup.add(refreshRow);
 
-    let positionContainer = new Gtk.HBox({spacing: 5});
-    let positionLabel = new Gtk.Label({label: _('Toolbar position')});
-    let positionSelector = new Gtk.ComboBoxText();
-
-    positionContainer.pack_start(positionLabel, 0,0,0);
-    positionContainer.pack_end(positionSelector, 0,0,0);
-
-    ['left','center','right'].forEach(function(item) {
-      positionSelector.append_text(item);
-    });
-
-    positionSelector.set_active(this._settings.get_enum(SETTINGS_POSITION));
-
-    let self = this;
-
-    positionSelector.connect('changed', function(pos) {
-      self._settings.set_enum(SETTINGS_POSITION, positionSelector.get_active());
-    });
-
-    vbox.add(positionContainer);
-
-    //
-    let frequencyContainer = new Gtk.HBox({spacing: 5});
-    let frequencyLabel = new Gtk.Label({label: _('How often to check for IP change (secs)')});
-    let frequencySelector = new Gtk.SpinButton();
-
-    frequencyContainer.pack_start(frequencyLabel, 0,0,0);
-    frequencyContainer.pack_end(frequencySelector, 0,0,0);
-
-    frequencySelector.set_numeric(true);
-
-    frequencySelector.set_value(this._settings.get_value(SETTINGS_REFRESH_RATE));
-    frequencySelector.set_range(30, 30000);
-    frequencySelector.set_increments(10,100);
-
-    this._settings.bind(SETTINGS_REFRESH_RATE, frequencySelector, 'value', Gio.SettingsBindFlags.DEFAULT);
-
-    vbox.add(frequencyContainer);
-
-  },
-});
-
-function init() {
-}
-
-function buildPrefsWidget() {
-  let widget = new IPMenuSettingsWidget();
-  widget.show_all();
-
-  return widget;
+        window.add(page);
+    }
 }
