@@ -1,4 +1,4 @@
-UUID = public-ip-address@holdingitwrong.com
+UUID = public-ip-address@theophilediot.github.io
 DIST_FILES = extension.js prefs.js stylesheet.css metadata.json LICENSE icons/
 
 INSTALL_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
