@@ -28,7 +28,7 @@ Then restart GNOME Shell (log out/in on Wayland, Alt+F2 r on X11).
 ### Manual
 
     make zip
-    gnome-extensions install public-ip-address@holdingitwrong.com.zip
+    gnome-extensions install public-ip-address@theophilediot.github.io.zip
 
 ## Privacy
 

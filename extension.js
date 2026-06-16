@@ -410,102 +410,116 @@ class IPMenu extends PanelMenu.Button {
         const IGNORED = ['docker', 'br-', 'veth', 'virbr', 'lo'];
 
         try {
-            const [ok, out] = GLib.spawn_command_line_sync('ip -o addr show scope global');
-            if (!ok) return;
+            const proc = Gio.Subprocess.new(
+                ['ip', '-o', 'addr', 'show', 'scope', 'global'],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            );
+            proc.communicate_utf8_async(null, null, (source, res) => {
+                try {
+                    const [, stdout] = source.communicate_utf8_finish(res);
+                    if (!stdout) return;
 
-            // Group IPs by interface: {iface: [{ip, isV6}]}
-            const ifaces = new Map();
-            const lines = new TextDecoder().decode(out).split('\n');
-            for (const line of lines) {
-                if (!line.trim()) continue;
-
-                const parts = line.trim().split(/\s+/);
-                const iface = parts[1];
-
-                // Skip built-in ignored + user-hidden interfaces
-                if (IGNORED.some(p => iface.startsWith(p)))
-                    continue;
-                if (this._hiddenIfaces.includes(iface))
-                    continue;
-
-                const isV6 = parts[2] === 'inet6';
-                const addrField = parts[3] || '';
-                const ip = addrField.split('/')[0];
-                const cidr = addrField; // e.g. "192.168.1.5/24"
-
-                if (!ip) continue;
-
-                if (!ifaces.has(iface))
-                    ifaces.set(iface, []);
-                ifaces.get(iface).push({ip, cidr, isV6});
-            }
-
-            const sepIndex = this.menu._getMenuItems().indexOf(this._localSeparator);
-            let insertPos = sepIndex + 1;
-
-            let first = true;
-            for (const [iface, addrs] of ifaces) {
-                // Interface header
-                if (!first) {
-                    const spacer = new PopupMenu.PopupSeparatorMenuItem();
-                    this.menu.addMenuItem(spacer, insertPos);
-                    this._localItems.push(spacer);
-                    insertPos++;
+                    this._populateLocalIPs(stdout, IGNORED);
+                } catch (_e) {
+                    // Silent fail — local IPs are non-critical
                 }
-
-                const header = new PopupMenu.PopupBaseMenuItem({reactive: false});
-                header.add_child(new St.Icon({
-                    icon_name: 'network-wired-symbolic',
-                    icon_size: 14,
-                    style_class: 'iface-header-icon',
-                }));
-                header.add_child(new St.Label({
-                    style_class: 'iface-header',
-                    text: iface,
-                }));
-                this.menu.addMenuItem(header, insertPos);
-                this._localItems.push(header);
-                header.accessible_name = `Interface: ${iface}`;
-                insertPos++;
-
-                // IP rows under this interface
-                for (const {ip, cidr, isV6} of addrs) {
-                    const item = new PopupMenu.PopupBaseMenuItem();
-                    item.add_child(new St.Label({
-                        style_class: 'ip-info-key',
-                        text: isV6 ? '  IPv6  ' : '  IPv4  ',
-                    }));
-                    item.add_child(new St.Label({
-                        style_class: isV6 ? 'ip-address-v6' : 'ip-address',
-                        text: cidr,
-                        x_expand: true,
-                    }));
-                    item.add_child(new St.Icon({
-                        icon_name: 'edit-copy-symbolic',
-                        icon_size: 14,
-                        style_class: 'ip-copy-icon',
-                    }));
-                    item.connect('activate', () => this._copyToClipboard(this._copyCidr ? cidr : ip));
-                    item.accessible_name = `${iface} ${isV6 ? 'IPv6' : 'IPv4'}: ${cidr}. Activate to copy.`;
-                    this.menu.addMenuItem(item, insertPos);
-                    this._localItems.push(item);
-                    insertPos++;
-                }
-
-                first = false;
-            }
-
-            if (ifaces.size === 0) {
-                const emptyItem = new PopupMenu.PopupBaseMenuItem({reactive: false});
-                emptyItem.add_child(new St.Label({
-                    style_class: 'ip-info-key',
-                    text: 'No interfaces',
-                }));
-                this.menu.addMenuItem(emptyItem, insertPos);
-                this._localItems.push(emptyItem);
-            }
+            });
         } catch (_e) {
             // Silent fail — local IPs are non-critical
+        }
+    }
+
+    _populateLocalIPs(stdout, IGNORED) {
+        // Group IPs by interface: {iface: [{ip, isV6}]}
+        const ifaces = new Map();
+        const lines = stdout.split('\n');
+        for (const line of lines) {
+            if (!line.trim()) continue;
+
+            const parts = line.trim().split(/\s+/);
+            const iface = parts[1];
+
+            // Skip built-in ignored + user-hidden interfaces
+            if (IGNORED.some(p => iface.startsWith(p)))
+                continue;
+            if (this._hiddenIfaces.includes(iface))
+                continue;
+
+            const isV6 = parts[2] === 'inet6';
+            const addrField = parts[3] || '';
+            const ip = addrField.split('/')[0];
+            const cidr = addrField; // e.g. "192.168.1.5/24"
+
+            if (!ip) continue;
+
+            if (!ifaces.has(iface))
+                ifaces.set(iface, []);
+            ifaces.get(iface).push({ip, cidr, isV6});
+        }
+
+        const sepIndex = this.menu._getMenuItems().indexOf(this._localSeparator);
+        let insertPos = sepIndex + 1;
+
+        let first = true;
+        for (const [iface, addrs] of ifaces) {
+            // Interface header
+            if (!first) {
+                const spacer = new PopupMenu.PopupSeparatorMenuItem();
+                this.menu.addMenuItem(spacer, insertPos);
+                this._localItems.push(spacer);
+                insertPos++;
+            }
+
+            const header = new PopupMenu.PopupBaseMenuItem({reactive: false});
+            header.add_child(new St.Icon({
+                icon_name: 'network-wired-symbolic',
+                icon_size: 14,
+                style_class: 'iface-header-icon',
+            }));
+            header.add_child(new St.Label({
+                style_class: 'iface-header',
+                text: iface,
+            }));
+            this.menu.addMenuItem(header, insertPos);
+            this._localItems.push(header);
+            header.accessible_name = `Interface: ${iface}`;
+            insertPos++;
+
+            // IP rows under this interface
+            for (const {ip, cidr, isV6} of addrs) {
+                const item = new PopupMenu.PopupBaseMenuItem();
+                item.add_child(new St.Label({
+                    style_class: 'ip-info-key',
+                    text: isV6 ? '  IPv6  ' : '  IPv4  ',
+                }));
+                item.add_child(new St.Label({
+                    style_class: isV6 ? 'ip-address-v6' : 'ip-address',
+                    text: cidr,
+                    x_expand: true,
+                }));
+                item.add_child(new St.Icon({
+                    icon_name: 'edit-copy-symbolic',
+                    icon_size: 14,
+                    style_class: 'ip-copy-icon',
+                }));
+                item.connect('activate', () => this._copyToClipboard(this._copyCidr ? cidr : ip));
+                item.accessible_name = `${iface} ${isV6 ? 'IPv6' : 'IPv4'}: ${cidr}. Activate to copy.`;
+                this.menu.addMenuItem(item, insertPos);
+                this._localItems.push(item);
+                insertPos++;
+            }
+
+            first = false;
+        }
+
+        if (ifaces.size === 0) {
+            const emptyItem = new PopupMenu.PopupBaseMenuItem({reactive: false});
+            emptyItem.add_child(new St.Label({
+                style_class: 'ip-info-key',
+                text: 'No interfaces',
+            }));
+            this.menu.addMenuItem(emptyItem, insertPos);
+            this._localItems.push(emptyItem);
         }
     }
 
