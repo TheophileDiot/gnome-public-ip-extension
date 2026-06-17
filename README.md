@@ -15,7 +15,7 @@ Shows your public IP address with VPN detection, IPv6 leak warnings, and a secur
 
 ## Requirements
 
-- GNOME Shell 45, 46, or 47
+- GNOME Shell 45, 46, 47, or 48
 
 ## Install
 
@@ -27,8 +27,18 @@ Then restart GNOME Shell (log out/in on Wayland, Alt+F2 r on X11).
 
 ### Manual
 
-    make zip
-    gnome-extensions install public-ip-address@theophilediot.github.io.zip
+    make pack
+    gnome-extensions install dist/public-ip-address@theophilediot.github.io.shell-extension.zip
+
+## Release
+
+Source releases are tracked in [`VERSION`](VERSION) and Git tags such as `v0.1.1`. The GNOME Extensions website assigns its own internal version, so `metadata.json` intentionally does not contain a `version` key.
+
+Run the release checks before tagging:
+
+    make release-check
+
+See [`RELEASE.md`](RELEASE.md) for the full workflow.
 
 ## Privacy
 

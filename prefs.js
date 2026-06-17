@@ -18,10 +18,15 @@ const BUILTIN_IGNORED = ['docker', 'br-', 'veth', 'virbr', 'lo'];
 
 function _discoverInterfaces() {
     try {
-        const [ok, out] = GLib.spawn_command_line_sync('ip -o addr show scope global');
-        if (!ok) return [];
+        const proc = Gio.Subprocess.new(
+            ['ip', '-o', 'addr', 'show', 'scope', 'global'],
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+        );
+        const [ok, stdout] = proc.communicate_utf8(null, null);
+        if (!ok || !stdout)
+            return [];
         const seen = new Set();
-        const lines = new TextDecoder().decode(out).split('\n');
+        const lines = stdout.split('\n');
         for (const line of lines) {
             if (!line.trim()) continue;
             const iface = line.trim().split(/\s+/)[1];

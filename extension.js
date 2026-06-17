@@ -187,7 +187,8 @@ class IPMenu extends PanelMenu.Button {
         this._settings = extension.getSettings();
         this._textureCache = St.TextureCache.get_default();
         this._session = new Soup.Session();
-        this._session.set_user_agent(`GNOME-Public-IP-Extension/${extension.metadata.version} (+${extension.metadata.url})`);
+        const userAgentVersion = extension.metadata.version ?? 'dev';
+        this._session.set_user_agent(`GNOME-Public-IP-Extension/${userAgentVersion} (+${extension.metadata.url})`);
         this._session.timeout = 30;
         this._cancellable = new Gio.Cancellable();
         this._updating = false;

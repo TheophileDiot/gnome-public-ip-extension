@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a reproducible problem with Public IP Address+.
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Before opening a bug, please search existing issues:
+        https://github.com/TheophileDiot/gnome-public-ip-extension/issues?q=is%3Aissue+sort%3Acreated-desc
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected to happen instead.
+      placeholder: The panel shows the wrong IP, VPN status is incorrect, IPv6 leak warning is wrong, preferences crash, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How do we reproduce it?
+      description: List the exact steps needed to reproduce the issue.
+      placeholder: |
+        1. Install and enable the extension.
+        2. Connect or disconnect VPN.
+        3. Open the panel indicator.
+        4. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension version or source
+      description: Use the GitHub release tag, GNOME Extensions version, or source commit.
+      placeholder: v0.1.0, GNOME Extensions version 1, or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: gnome-shell-version
+    attributes:
+      label: GNOME Shell version
+      description: Run `gnome-shell --version`.
+      placeholder: GNOME Shell 46.7
+    validations:
+      required: true
+  - type: dropdown
+    id: session-type
+    attributes:
+      label: Session type
+      options:
+        - Wayland
+        - X11
+        - Unsure
+    validations:
+      required: true
+  - type: input
+    id: distribution
+    attributes:
+      label: Linux distribution
+      placeholder: Ubuntu 24.04, Fedora 40, Arch Linux, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: network
+    attributes:
+      label: Network context
+      description: Mention VPN provider, IPv4/IPv6 availability, and privacy toggles. Redact public IPs unless the exact value is required.
+      placeholder: |
+        VPN provider: Mullvad, Proton VPN, none, etc.
+        IPv6: enabled or disabled
+        Map tile: enabled or disabled
+        CIDR prefix: enabled or disabled
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste relevant GNOME Shell or preferences logs. Remove IP addresses, location data, tokens, hostnames, or private paths first.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I searched existing issues first.
+          required: true
+        - label: I removed private data from logs and screenshots.
+          required: true

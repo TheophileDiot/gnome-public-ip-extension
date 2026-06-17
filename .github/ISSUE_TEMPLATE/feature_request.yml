@@ -1,0 +1,53 @@
+name: Feature Request
+description: Suggest a focused improvement to Public IP Address+.
+title: "[FEATURE] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Before opening a feature request, please search existing issues:
+        https://github.com/TheophileDiot/gnome-public-ip-extension/issues?q=is%3Aissue+sort%3Acreated-desc+%5BFEATURE%5D+in%3Atitle
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow or limitation should this solve?
+      placeholder: I want better VPN detection, safer IPv6 leak handling, a different panel display, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the change you want.
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy impact
+      description: Mention any new data source, network request, public IP handling, or location display involved.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Mention workarounds, other extensions, or simpler behavior that might be enough.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add screenshots, GNOME Shell versions, VPN provider names, or related links if helpful. Redact private data.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I searched existing issues first.
+          required: true

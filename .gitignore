@@ -1,7 +1,9 @@
 schemas/gschemas.compiled
+dist/
 icons/.*
 icons/latest_map.png
 *.zip
+*.shell-extension.zip
 *.swp
 *.swo
 *~

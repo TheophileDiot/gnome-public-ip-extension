@@ -1,0 +1,39 @@
+name: Documentation
+description: Report missing, confusing, or incorrect documentation.
+title: "[DOC] "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Before opening a documentation issue, please search existing issues:
+        https://github.com/TheophileDiot/gnome-public-ip-extension/issues?q=is%3Aissue+sort%3Acreated-desc+%5BDOC%5D+in%3Atitle
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: Which file, section, or page needs work?
+      placeholder: README.md, SECURITY.md, RELEASE.md, GNOME Extensions listing, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What is wrong or missing?
+      description: Describe the documentation problem.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed fix
+      description: Suggest wording or structure if you already have it.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I searched existing issues first.
+          required: true
