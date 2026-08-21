@@ -80,3 +80,42 @@
 .ip-info-value {
   opacity: 0.95;
 }
+
+/* Panel status dot */
+.panel-status-dot {
+  margin-left: 4px;
+}
+
+.panel-status-protected {
+  color: #2ec27e;
+}
+
+.panel-status-leak {
+  color: #e01b24;
+}
+
+.panel-status-exposed {
+  color: #e5a50a;
+}
+
+.panel-status-offline,
+.panel-status-checking {
+  opacity: 0.5;
+}
+
+/* Blacklist warning */
+.blacklist-icon {
+  color: #e5a50a;
+  margin-right: 6px;
+}
+
+.blacklist-text {
+  color: #e5a50a;
+  font-size: 0.9em;
+}
+
+/* DNS leak test result */
+.dns-result-text {
+  font-size: 0.9em;
+  opacity: 0.85;
+}

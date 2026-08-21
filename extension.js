@@ -23,6 +23,14 @@ const SETTINGS_NOTIFY_IP_CHANGE = 'notify-ip-change';
 const SETTINGS_COPY_CIDR = 'copy-cidr';
 const POSITION_NAMES = ['left', 'center', 'right'];
 
+// NetworkManager emits several signals per connect/disconnect; collapse them
+const NM_DEBOUNCE_SECONDS = 2;
+// Floor between signal-driven refreshes, so a flapping link cannot outpace the
+// poll interval the schema deliberately caps at 30s. The poll still catches up.
+const NM_MIN_INTERVAL_US = 10 * 1000 * 1000;
+const DNS_LEAK_HOST = 'dnsleak.am.i.mullvad.net';
+const MULLVAD_HOST = 'am.i.mullvad.net';
+
 // Build reverse mapping: English country name -> ISO 3166-1 alpha-2 code
 const COUNTRY_TO_CODE = {};
 const FLAG_CODES = [
@@ -195,6 +203,10 @@ class IPMenu extends PanelMenu.Button {
         this._pendingUpdate = false;
         this._destroyed = false;
         this._timerId = null;
+        this._nmSignalId = null;
+        this._nmDebounceId = null;
+        this._lastNmUpdate = 0;
+        this._dnsTesting = false;
         this._currentIPv4 = null;
         this._currentIPv6 = null;
         this._firstUpdate = true;
@@ -224,7 +236,18 @@ class IPMenu extends PanelMenu.Button {
         });
         this._label.visible = !this._compactMode;
 
+        // Security status dot: mirrors the popup banner so a leak is visible
+        // in the panel without opening the menu
+        this._statusDot = new St.Icon({
+            icon_name: 'emblem-synchronizing-symbolic',
+            icon_size: 12,
+            style_class: 'panel-status-dot panel-status-checking',
+            y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: 'Checking connection',
+        });
+
         hbox.add_child(this._icon);
+        hbox.add_child(this._statusDot);
         hbox.add_child(this._label);
         this.add_child(hbox);
 
@@ -312,8 +335,38 @@ class IPMenu extends PanelMenu.Button {
         this._geoItem.add_child(geoContainer);
         this.menu.addMenuItem(this._geoItem);
 
+        // Blacklist warning: Mullvad already returns this with the geo data
+        this._blacklistItem = new PopupMenu.PopupBaseMenuItem({reactive: false});
+        this._blacklistItem.add_child(new St.Icon({
+            icon_name: 'dialog-warning-symbolic',
+            icon_size: 14,
+            style_class: 'blacklist-icon',
+        }));
+        this._blacklistLabel = new St.Label({
+            style_class: 'blacklist-text',
+            text: '',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._blacklistItem.add_child(this._blacklistLabel);
+        this._blacklistItem.visible = false;
+        this.menu.addMenuItem(this._blacklistItem);
+
         // Actions
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        this._dnsResultItem = new PopupMenu.PopupBaseMenuItem({reactive: false});
+        this._dnsResultLabel = new St.Label({
+            style_class: 'dns-result-text',
+            text: '',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._dnsResultItem.add_child(this._dnsResultLabel);
+        this._dnsResultItem.visible = false;
+        this.menu.addMenuItem(this._dnsResultItem);
+
+        this._dnsTestItem = new PopupMenu.PopupMenuItem('Test DNS leak');
+        this._dnsTestItem.connect('activate', () => this._testDnsLeak());
+        this.menu.addMenuItem(this._dnsTestItem);
 
         this._refreshItem = new PopupMenu.PopupMenuItem('Refresh');
         this._refreshItem.connect('activate', () => this._update());
@@ -369,6 +422,7 @@ class IPMenu extends PanelMenu.Button {
         });
 
         Main.panel.addToStatusArea('ip-menu', this, 1, this._menuPosition);
+        this._watchNetworkChanges();
         this._update();
         this._startTimer();
     }
@@ -540,6 +594,48 @@ class IPMenu extends PanelMenu.Button {
         }
     }
 
+    _watchNetworkChanges() {
+        // Refresh as soon as the network actually changes (VPN up/down, link
+        // change, resume) instead of waiting out the poll interval.
+        try {
+            this._nmSignalId = Gio.DBus.system.signal_subscribe(
+                'org.freedesktop.NetworkManager',
+                'org.freedesktop.DBus.Properties',
+                'PropertiesChanged',
+                '/org/freedesktop/NetworkManager',
+                'org.freedesktop.NetworkManager',
+                Gio.DBusSignalFlags.NONE,
+                (_conn, _sender, _path, _iface, _signal, params) => {
+                    const changed = params?.deepUnpack()?.[1] ?? {};
+                    // Only the properties that imply our public IP may differ
+                    if ('PrimaryConnection' in changed || 'ActiveConnections' in changed
+                        || 'State' in changed || 'Connectivity' in changed)
+                        this._queueNetworkUpdate();
+                }
+            );
+        } catch (e) {
+            console.error(`[Public IP] NetworkManager watch failed: ${e.message}`);
+        }
+    }
+
+    _queueNetworkUpdate() {
+        if (this._destroyed)
+            return;
+        if (this._nmDebounceId !== null)
+            GLib.source_remove(this._nmDebounceId);
+        this._nmDebounceId = GLib.timeout_add_seconds(
+            GLib.PRIORITY_DEFAULT, NM_DEBOUNCE_SECONDS, () => {
+                this._nmDebounceId = null;
+                const now = GLib.get_monotonic_time();
+                if (!this._destroyed && now - this._lastNmUpdate >= NM_MIN_INTERVAL_US) {
+                    this._lastNmUpdate = now;
+                    this._update();
+                }
+                return GLib.SOURCE_REMOVE;
+            }
+        );
+    }
+
     _resetPanelPos() {
         try {
             if (this.container.get_parent())
@@ -561,6 +657,98 @@ class IPMenu extends PanelMenu.Button {
             )
         );
         this._mapInfo.accessible_name = `Map: ${this._locationLabel?.text || 'unknown location'}`;
+    }
+
+    _updateBlacklist(ipv4Data, ipv6Data) {
+        // Comes free with the geo response - no extra request, no extra host
+        const lists = [];
+        let flagged = false;
+        for (const data of [ipv4Data, ipv6Data]) {
+            const bl = data?.blacklisted;
+            if (!bl)
+                continue;
+            if (bl.blacklisted === true)
+                flagged = true;
+            for (const entry of bl.results ?? []) {
+                if (entry?.blacklisted && entry.name && !lists.includes(entry.name))
+                    lists.push(entry.name);
+            }
+        }
+
+        this._blacklistItem.visible = flagged || lists.length > 0;
+        if (!this._blacklistItem.visible)
+            return;
+
+        const count = lists.length;
+        const text = count
+            ? `Flagged on ${count} list${count > 1 ? 's' : ''}: ${lists.join(', ')}`
+            : 'Flagged on a public blocklist';
+        this._blacklistLabel.text = text;
+        this._blacklistItem.accessible_name = `Warning: ${text}`;
+    }
+
+    async _testDnsLeak() {
+        if (this._destroyed || this._dnsTesting)
+            return;
+        this._dnsTesting = true;
+        this._dnsTestItem.label.text = 'Testing DNS...';
+        try {
+            // Resolving a unique subdomain lets Mullvad report back which
+            // resolvers performed the lookup on our behalf.
+            const id = Array.from({length: 4}, () =>
+                GLib.random_int_range(0, 0x10000).toString(16).padStart(4, '0')
+            ).join('');
+
+            await this._fetchText(`https://${id}.${DNS_LEAK_HOST}/`, 0);
+            if (this._destroyed) return;
+
+            const json = await this._fetchText(`https://${MULLVAD_HOST}/dnsleak/${id}`, 0);
+            if (this._destroyed) return;
+
+            const resolvers = JSON.parse(json);
+            this._showDnsResult(this._describeResolvers(resolvers));
+        } catch (e) {
+            if (!this._destroyed) {
+                this._showDnsResult('DNS test failed');
+                console.error(`[Public IP] DNS leak test failed: ${e.message}`);
+            }
+        } finally {
+            this._dnsTesting = false;
+            if (!this._destroyed)
+                this._dnsTestItem.label.text = 'Test DNS leak';
+        }
+    }
+
+    _describeResolvers(resolvers) {
+        if (!Array.isArray(resolvers) || resolvers.length === 0)
+            return 'DNS: no resolvers reported';
+
+        if (resolvers.every(r => r?.mullvad_dns === true)) {
+            const n = resolvers.length;
+            return `DNS: ${n} resolver${n > 1 ? 's' : ''}, all Mullvad`;
+        }
+
+        // ponytail: "all Mullvad" is the only verdict this API actually proves.
+        // Everything else is reported as-is rather than guessed at - a resolver
+        // in another country is normal for anycast and must not cry leak.
+        // Upgrade path: compare against the exit country if false alarms prove rare.
+        const seen = [];
+        for (const r of resolvers) {
+            const who = r?.organization || r?.hostname || r?.ip || 'unknown';
+            const where = r?.country ? ` (${r.country})` : '';
+            const entry = `${who}${where}`;
+            if (!seen.includes(entry))
+                seen.push(entry);
+        }
+        return `DNS: ${seen.join(', ')}`;
+    }
+
+    _showDnsResult(text) {
+        this._dnsResultLabel.text = text;
+        this._dnsResultItem.accessible_name = text;
+        this._dnsResultItem.visible = true;
+        // Activating a menu item closes the menu, so surface the result here too
+        Main.notify('DNS Leak Test', text);
     }
 
     _assessSecurity(ipv4Data, ipv6Data) {
@@ -627,6 +815,11 @@ class IPMenu extends PanelMenu.Button {
         this._statusIcon.icon_name = assessment.icon;
         this._statusLabel.text = assessment.text;
         this._statusItem.accessible_name = `Security: ${assessment.text}`;
+
+        // Panel dot: same icon, same status colour, always visible
+        this._statusDot.icon_name = assessment.icon;
+        this._statusDot.style_class = `panel-status-dot panel-status-${assessment.status}`;
+        this._statusDot.accessible_name = assessment.text;
 
         // Update banner style
         this._statusBox.style_class = 'status-banner';
@@ -772,6 +965,7 @@ class IPMenu extends PanelMenu.Button {
             // Security assessment (uses both IPv4 and IPv6 data)
             const assessment = this._assessSecurity(ipv4Data, ipv6Data);
             this._updateSecurityBanner(assessment);
+            this._updateBlacklist(ipv4Data, ipv6Data);
 
             // Update panel icon for offline state
             if (assessment.status === STATUS_OFFLINE) {
@@ -888,6 +1082,14 @@ class IPMenu extends PanelMenu.Button {
         this._destroyed = true;
         this._cancellable.cancel();
         this._stopTimer();
+        if (this._nmDebounceId !== null) {
+            GLib.source_remove(this._nmDebounceId);
+            this._nmDebounceId = null;
+        }
+        if (this._nmSignalId !== null) {
+            Gio.DBus.system.signal_unsubscribe(this._nmSignalId);
+            this._nmSignalId = null;
+        }
         if (this._settingsChangedId) {
             this._settings.disconnect(this._settingsChangedId);
             this._settingsChangedId = null;

@@ -8,6 +8,10 @@ Shows your public IP address with VPN detection, IPv6 leak warnings, and a secur
 - **Local IP display** — grouped by network interface, click to copy
 - **VPN detection** — Mullvad (confirmed), 40+ other providers (heuristic)
 - **Security banner** — green (VPN active), yellow (exposed), red (IPv6 leak)
+- **Panel status dot** — same colour in the top bar, so a leak is visible without opening the menu
+- **Live network updates** — refreshes within seconds of a VPN connecting or dropping, not on the next poll
+- **DNS leak test** — on demand, shows which resolvers actually answered for you
+- **Blocklist warning** — flags a public IP listed on spam/abuse blocklists
 - **IP change notifications** — opt-in alerts with VPN status context
 - **Country flag** — in panel and popup
 - **Map tile** — opt-in, from OpenStreetMap
@@ -49,6 +53,9 @@ The extension contacts these services:
 | Mullvad API (am.i.mullvad.net)         | Source IP (implicit) | Every refresh cycle | Cannot disable (core function)           |
 | OpenStreetMap (tile.openstreetmap.org) | Lat/lon in tile URL  | On IP change        | Preferences > Privacy > Show map tile    |
 | RIPE NCC (stat.ripe.net)               | IP as URL parameter  | On IP change        | Preferences > Privacy > Show CIDR prefix |
+| Mullvad DNS leak check (`<random>.dnsleak.am.i.mullvad.net`, `am.i.mullvad.net`) | Source IP (implicit); your DNS resolver looks up a Mullvad-controlled name | Only when you click **Test DNS leak** | Don't click it |
+
+The DNS leak test works by making *your* resolver query a hostname Mullvad controls — that disclosure is inherent to the test, which is why it never runs on its own.
 
 ## Credits
 

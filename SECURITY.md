@@ -9,6 +9,7 @@ The extension sends requests only to the services documented in `README.md`:
 - Mullvad API for the core public IP and VPN status check.
 - OpenStreetMap tiles only when map display is enabled.
 - RIPE NCC Stat only when CIDR prefix display is enabled.
+- Mullvad DNS leak check only when the user clicks **Test DNS leak** in the menu. It resolves a random one-off subdomain of `dnsleak.am.i.mullvad.net`, which by design exposes that lookup to whichever DNS resolver the system is using.
 
 No project can make supply-chain compromise impossible. This repository keeps the release path small and auditable so a maintainer can detect and block risky changes before upload.
 
