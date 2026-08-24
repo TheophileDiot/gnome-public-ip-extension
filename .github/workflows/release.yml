@@ -60,7 +60,7 @@ jobs:
       - name: Install GNOME packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gnome-shell libglib2.0-bin jq unzip
+          sudo apt-get install -y gnome-shell gjs libglib2.0-bin jq unzip
 
       - name: Check release version
         if: startsWith(github.ref, 'refs/tags/')

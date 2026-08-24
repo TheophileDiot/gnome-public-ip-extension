@@ -8,7 +8,7 @@ INSTALL_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
 DIST_DIR = dist
 ZIP = $(DIST_DIR)/$(UUID).shell-extension.zip
 
-.PHONY: all schemas install uninstall pack zip static-check package-content-check release-check test clean
+.PHONY: all schemas install uninstall pack zip static-check tests package-content-check release-check test clean
 
 all: schemas
 
@@ -38,6 +38,7 @@ static-check:
 	jq -e 'has("version") | not' metadata.json >/dev/null
 	jq -e '."shell-version" | length > 0' metadata.json >/dev/null
 	test -s VERSION
+	test "$$(jq -r '."version-name"' metadata.json)" = "$$(cat VERSION)"
 	@if grep -En "from 'gi://(Gtk|Gdk|Adw)" extension.js; then \
 		echo "extension.js must not import GTK, Gdk, or Adwaita" >&2; \
 		exit 1; \
@@ -53,6 +54,9 @@ static-check:
 	grep -Fq 'am.i.mullvad.net' README.md
 	grep -Fq 'tile.openstreetmap.org' README.md
 	grep -Fq 'stat.ripe.net' README.md
+
+tests:
+	gjs -m tests/test-settings-contract.js
 
 package-content-check:
 	unzip -l "$(ZIP)"
@@ -73,7 +77,7 @@ package-content-check:
 		exit 1; \
 	fi
 
-release-check: static-check
+release-check: static-check tests
 	$(MAKE) pack
 	$(MAKE) package-content-check
 

@@ -12,10 +12,14 @@ This repository tracks source releases with `VERSION` and matching Git tags such
 
 ## Prepare a Release
 
-1. Start from `dev` and update `VERSION`.
+1. Start from `dev` and update `VERSION`, then set `version-name` in `metadata.json` to the
+   same string. `make static-check` fails if the two disagree.
 2. Keep `metadata.json` minimal:
-   - no `version` key
-   - `shell-version` contains only tested GNOME Shell releases
+   - no `version` key (`version-name` is a different key and is allowed)
+   - `shell-version` may declare GNOME Shell releases ahead of the one used for testing,
+     so the extension stays installable on newer Shells. Anything newer than the maintainer's
+     own Shell is declared, not verified; drop a release from the list as soon as a report
+     shows it is actually broken.
    - `uuid` remains `public-ip-address@theophilediot.github.io`
 3. Run:
 
@@ -63,6 +67,9 @@ GNOME will review the submitted version before publishing it.
 
 ## Review Notes
 
+- `make release-check` runs `make tests`, which asserts every gschema key is wired through a
+  constant, a `changed::` case, a settings read, and a `prefs.js` row. A half-finished setting
+  fails the release instead of failing silently at runtime.
 - `schemas/gschemas.compiled`, `dist/`, screenshots, docs, and local-only files must stay out of source control and release ZIPs.
 - GNOME review guidelines require cleanup of all Shell-side state in `disable()`.
 - Do not import GTK, Gdk, or Adwaita in `extension.js`; it runs inside the GNOME Shell process.
