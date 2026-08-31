@@ -201,7 +201,6 @@ class IPMenu extends PanelMenu.Button {
         this._cancellable = new Gio.Cancellable();
         this._updating = false;
         this._pendingUpdate = false;
-        this._destroyed = false;
         this._timerId = null;
         this._nmSignalId = null;
         this._nmDebounceId = null;
@@ -378,7 +377,7 @@ class IPMenu extends PanelMenu.Button {
 
         // React to settings changes per key
         this._settingsChangedId = this._settings.connect('changed', (_settings, key) => {
-            if (this._destroyed)
+            if (this._cancellable.is_cancelled())
                 return;
             switch (key) {
             case SETTINGS_COMPACT_MODE:
@@ -619,7 +618,7 @@ class IPMenu extends PanelMenu.Button {
     }
 
     _queueNetworkUpdate() {
-        if (this._destroyed)
+        if (this._cancellable.is_cancelled())
             return;
         if (this._nmDebounceId !== null)
             GLib.source_remove(this._nmDebounceId);
@@ -627,7 +626,7 @@ class IPMenu extends PanelMenu.Button {
             GLib.PRIORITY_DEFAULT, NM_DEBOUNCE_SECONDS, () => {
                 this._nmDebounceId = null;
                 const now = GLib.get_monotonic_time();
-                if (!this._destroyed && now - this._lastNmUpdate >= NM_MIN_INTERVAL_US) {
+                if (!this._cancellable.is_cancelled() && now - this._lastNmUpdate >= NM_MIN_INTERVAL_US) {
                     this._lastNmUpdate = now;
                     this._update();
                 }
@@ -688,7 +687,7 @@ class IPMenu extends PanelMenu.Button {
     }
 
     async _testDnsLeak() {
-        if (this._destroyed || this._dnsTesting)
+        if (this._cancellable.is_cancelled() || this._dnsTesting)
             return;
         this._dnsTesting = true;
         this._dnsTestItem.label.text = 'Testing DNS...';
@@ -700,21 +699,21 @@ class IPMenu extends PanelMenu.Button {
             ).join('');
 
             await this._fetchText(`https://${id}.${DNS_LEAK_HOST}/`, 0);
-            if (this._destroyed) return;
+            if (this._cancellable.is_cancelled()) return;
 
             const json = await this._fetchText(`https://${MULLVAD_HOST}/dnsleak/${id}`, 0);
-            if (this._destroyed) return;
+            if (this._cancellable.is_cancelled()) return;
 
             const resolvers = JSON.parse(json);
             this._showDnsResult(this._describeResolvers(resolvers));
         } catch (e) {
-            if (!this._destroyed) {
+            if (!this._cancellable.is_cancelled()) {
                 this._showDnsResult('DNS test failed');
                 console.error(`[Public IP] DNS leak test failed: ${e.message}`);
             }
         } finally {
             this._dnsTesting = false;
-            if (!this._destroyed)
+            if (!this._cancellable.is_cancelled())
                 this._dnsTestItem.label.text = 'Test DNS leak';
         }
     }
@@ -861,7 +860,7 @@ class IPMenu extends PanelMenu.Button {
             ipv4 ? this._fetchPrefix(ipv4) : Promise.resolve(null),
             ipv6 ? this._fetchPrefix(ipv6) : Promise.resolve(null),
         ]);
-        if (this._destroyed) return;
+        if (this._cancellable.is_cancelled()) return;
 
         const v4Prefix = results[0].status === 'fulfilled' ? results[0].value : null;
         const v6Prefix = results[1].status === 'fulfilled' ? results[1].value : null;
@@ -904,7 +903,7 @@ class IPMenu extends PanelMenu.Button {
     }
 
     async _update() {
-        if (this._destroyed)
+        if (this._cancellable.is_cancelled())
             return;
         if (this._updating) {
             this._pendingUpdate = true;
@@ -927,7 +926,7 @@ class IPMenu extends PanelMenu.Button {
                 this._fetchText('https://ipv6.am.i.mullvad.net/json'),
             ]);
 
-            if (this._destroyed) return;
+            if (this._cancellable.is_cancelled()) return;
 
             if (ipv4Result.status === 'rejected')
                 console.error(`[Public IP] IPv4 fetch failed: ${ipv4Result.reason}`);
@@ -1027,7 +1026,7 @@ class IPMenu extends PanelMenu.Button {
                 }
             }
 
-            if (this._destroyed) return;
+            if (this._cancellable.is_cancelled()) return;
 
             // Fetch CIDR prefix from RIPE STAT (opt-in, sends IP to third party)
             if (this._showCidr)
@@ -1044,7 +1043,7 @@ class IPMenu extends PanelMenu.Button {
                     const mapBytes = await this._fetchBytes(
                         `https://tile.openstreetmap.org/${MAP_ZOOM}/${x}/${y}.png`
                     );
-                    if (this._destroyed) return;
+                    if (this._cancellable.is_cancelled()) return;
                     const file = Gio.File.new_for_path(
                         `${this._cacheDir}/latest_map.png`
                     );
@@ -1054,12 +1053,12 @@ class IPMenu extends PanelMenu.Button {
                     );
                     this._updateMapTile();
                 } catch (e) {
-                    if (!this._destroyed)
+                    if (!this._cancellable.is_cancelled())
                         console.error(`[Public IP] Map download failed: ${e.message}`);
                 }
             }
         } catch (e) {
-            if (!this._destroyed) {
+            if (!this._cancellable.is_cancelled()) {
                 console.error(`[Public IP] Update failed: ${e.message}`);
                 this._updateSecurityBanner({
                     status: STATUS_OFFLINE,
@@ -1071,7 +1070,7 @@ class IPMenu extends PanelMenu.Button {
             if (this._refreshItem)
                 this._refreshItem.label.text = 'Refresh';
             this._updating = false;
-            if (this._pendingUpdate && !this._destroyed) {
+            if (this._pendingUpdate && !this._cancellable.is_cancelled()) {
                 this._pendingUpdate = false;
                 this._update();
             }
@@ -1079,7 +1078,6 @@ class IPMenu extends PanelMenu.Button {
     }
 
     destroy() {
-        this._destroyed = true;
         this._cancellable.cancel();
         this._stopTimer();
         if (this._nmDebounceId !== null) {

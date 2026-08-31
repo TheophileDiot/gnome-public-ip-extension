@@ -59,9 +59,11 @@ inserted after `this._localSeparator` and tracked in `this._localItems` for tear
 
 ### Teardown contract
 
-GNOME review rejects leaks. `destroy()` sets `_destroyed`, cancels `this._cancellable`, removes the
+GNOME review rejects leaks. `destroy()` cancels `this._cancellable`, removes the
 GLib timer, disconnects the settings handler, aborts the Soup session. Every `await` boundary in an
-async method must re-check `if (this._destroyed) return;` before touching actors.
+async method must re-check `if (this._cancellable.is_cancelled()) return;` before touching actors.
+Do not add a separate `_destroyed` boolean — extensions.gnome.org review rejects that pattern
+(review 74350); the cancellable is the single teardown signal.
 
 ## Hard constraints (enforced by `make static-check` and CI)
 
