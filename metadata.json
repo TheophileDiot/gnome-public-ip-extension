@@ -5,5 +5,5 @@
   "description": "Shows your public IP address with VPN detection, IPv6 leak warnings, and a security status banner. Displays local and public IPs (IPv4/IPv6), country flag, city, ISP, and optional map tile. Click any IP to copy. Panel status dot shows VPN/leak state at a glance, and the menu refreshes within seconds of a VPN connecting or dropping. Includes an on-demand DNS leak test and a warning when your IP is on a public blocklist. Uses Mullvad's privacy-respecting API.",
   "settings-schema": "org.gnome.shell.extensions.public-ip-address",
   "url": "https://github.com/TheophileDiot/gnome-public-ip-extension",
-  "version-name": "0.2.0"
+  "version-name": "0.2.1"
 }
