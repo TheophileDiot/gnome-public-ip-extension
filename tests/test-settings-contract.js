@@ -1,9 +1,9 @@
 // Settings contract: every gschema key must be wired through both processes.
 //
-// CLAUDE.md: "Adding a setting means four edits: schema XML, key constant +
-// read + changed:: case in extension.js, key constant + Adw row in prefs.js."
-// extension.js and prefs.js share nothing but the schema, so a half-finished
-// setting fails silently at runtime. This fails loudly instead.
+// AGENTS.md: "Adding a setting means four edits: schema XML, key constant in
+// common.js, read + changed:: case in extension.js, Adw row in prefs.js."
+// extension.js and prefs.js share nothing but the schema (and common.js), so a
+// half-finished setting fails silently at runtime. This fails loudly instead.
 //
 // Run from the repository root: gjs -m tests/test-settings-contract.js
 
@@ -22,6 +22,7 @@ function read(path) {
 const escape = s => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
 
 const schema = read(SCHEMA);
+const common = read('common.js');
 const extension = read('extension.js');
 const prefs = read('prefs.js');
 
@@ -32,11 +33,11 @@ if (keys.length === 0)
 const failures = [];
 
 for (const key of keys) {
-    const declared = extension.match(
-        new RegExp(`const\\s+(\\w+)\\s*=\\s*'${escape(key)}';`)
+    const declared = common.match(
+        new RegExp(`export\\s+const\\s+(\\w+)\\s*=\\s*'${escape(key)}';`)
     );
     if (!declared) {
-        failures.push(`${key}: no key constant in extension.js`);
+        failures.push(`${key}: no exported key constant in common.js`);
         continue;
     }
 
@@ -48,8 +49,9 @@ for (const key of keys) {
     if (!new RegExp(`get_\\w+\\(\\s*${name}\\s*\\)`).test(extension))
         failures.push(`${key}: ${name} is never read from GSettings`);
 
-    if (!prefs.includes(`'${key}'`))
-        failures.push(`${key}: no row in prefs.js`);
+    // The declaration alone is not a row: prefs.js must bind, read or write it
+    if (!new RegExp(`settings\\.(bind|get_\\w+|set_\\w+)\\(\\s*${name}\\b`).test(prefs))
+        failures.push(`${key}: ${name} is not bound, read or written in prefs.js`);
 }
 
 if (failures.length > 0) {

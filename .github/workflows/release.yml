@@ -88,6 +88,7 @@ jobs:
           unzip -Z1 "$ZIP" | sort > actual-files.txt
 
           for file in \
+            common.js \
             extension.js \
             metadata.json \
             prefs.js \
@@ -114,7 +115,7 @@ jobs:
             exit 1
           fi
 
-          if grep -Ev '^(metadata\.json|extension\.js|prefs\.js|stylesheet\.css|schemas/|schemas/[^/]+\.gschema\.xml|icons/|icons/default_map\.png|icons/flags/|icons/flags/[^/]+\.png)$' actual-files.txt; then
+          if grep -Ev '^(metadata\.json|extension\.js|prefs\.js|common\.js|stylesheet\.css|schemas/|schemas/[^/]+\.gschema\.xml|icons/|icons/default_map\.png|icons/flags/|icons/flags/[^/]+\.png)$' actual-files.txt; then
             echo "Package contains an unexpected file." >&2
             exit 1
           fi

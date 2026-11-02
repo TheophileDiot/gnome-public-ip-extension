@@ -76,12 +76,13 @@ Run the local test target before release-facing changes:
 make test
 ```
 
-This validates metadata, privacy documentation, GNOME import boundaries, schema compilation, packaging, and package contents.
+This validates metadata, privacy documentation, GNOME import boundaries, the unit tests (`tests/`), schema compilation, packaging, and package contents.
 
 The package should contain only:
 
 - `extension.js`
 - `prefs.js`
+- `common.js`
 - `metadata.json`
 - `stylesheet.css`
 - `schemas/org.gnome.shell.extensions.public-ip-address.gschema.xml`
@@ -95,6 +96,7 @@ The package should contain only:
 - Create Shell-side state from `enable()` and clean it up in `disable()`.
 - Do not import GTK, Gdk, or Adwaita in `extension.js`.
 - Do not import GNOME Shell UI/runtime modules in `prefs.js`.
+- Keep `common.js` Shell-free (import only `gi://GLib` and `gi://Gio`): it loads in both processes and under `gjs -m` in the tests. Setting keys are declared there once.
 - Use `Gio.Subprocess` with an argument vector for local commands; do not use shell command-line spawning.
 - Gate debug logging behind settings.
 

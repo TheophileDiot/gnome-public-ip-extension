@@ -31,6 +31,7 @@ make release-check
    - `metadata.json`
    - `extension.js`
    - `prefs.js`
+   - `common.js`
    - `stylesheet.css`
    - `schemas/org.gnome.shell.extensions.public-ip-address.gschema.xml`
    - bundled icon files under `icons/`
@@ -67,8 +68,8 @@ GNOME will review the submitted version before publishing it.
 
 ## Review Notes
 
-- `make release-check` runs `make tests`, which asserts every gschema key is wired through a
-  constant, a `changed::` case, a settings read, and a `prefs.js` row. A half-finished setting
+- `make release-check` runs `make tests`, which unit-tests `common.js` and asserts every gschema key is wired through a
+  constant in `common.js`, a `changed::` case, a settings read, and a `settings.bind`/`get_*`/`set_*` call in `prefs.js`. A half-finished setting
   fails the release instead of failing silently at runtime.
 - `schemas/gschemas.compiled`, `dist/`, screenshots, docs, and local-only files must stay out of source control and release ZIPs.
 - GNOME review guidelines require cleanup of all Shell-side state in `disable()`.

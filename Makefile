@@ -1,7 +1,7 @@
 UUID = public-ip-address@theophilediot.github.io
 SCHEMA = org.gnome.shell.extensions.public-ip-address
 SCHEMA_FILE = schemas/$(SCHEMA).gschema.xml
-RUNTIME_FILES = extension.js prefs.js stylesheet.css metadata.json icons/
+RUNTIME_FILES = extension.js prefs.js common.js stylesheet.css metadata.json icons/
 INSTALL_FILES = $(RUNTIME_FILES) LICENSE
 
 INSTALL_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
@@ -18,7 +18,7 @@ schemas:
 pack: schemas
 	mkdir -p "$(DIST_DIR)"
 	gnome-extensions pack --force --out-dir "$(DIST_DIR)" --schema "$(SCHEMA_FILE)" \
-		--extra-source stylesheet.css --extra-source icons .
+		--extra-source common.js --extra-source stylesheet.css --extra-source icons .
 
 zip: pack
 
@@ -47,7 +47,11 @@ static-check:
 		echo "prefs.js must not import GNOME Shell UI/runtime modules" >&2; \
 		exit 1; \
 	fi
-	@if grep -En "spawn_command_line" extension.js prefs.js; then \
+	@if grep -En "from 'gi://(Gtk|Gdk|Adw|St|Clutter|Meta|Shell)|resource:///org/gnome/shell/" common.js; then \
+		echo "common.js must stay shell-free: no GTK, Shell UI or runtime imports" >&2; \
+		exit 1; \
+	fi
+	@if grep -En "spawn_command_line" extension.js prefs.js common.js; then \
 		echo "Use Gio.Subprocess argv APIs instead of shell command-line spawning" >&2; \
 		exit 1; \
 	fi
@@ -56,11 +60,12 @@ static-check:
 	grep -Fq 'stat.ripe.net' README.md
 
 tests:
+	gjs -m tests/test-common.js
 	gjs -m tests/test-settings-contract.js
 
 package-content-check:
 	unzip -l "$(ZIP)"
-	@for file in metadata.json extension.js prefs.js stylesheet.css schemas/ schemas/$(SCHEMA).gschema.xml icons/ icons/default_map.png icons/flags/; do \
+	@for file in metadata.json extension.js prefs.js common.js stylesheet.css schemas/ schemas/$(SCHEMA).gschema.xml icons/ icons/default_map.png icons/flags/; do \
 		zipinfo -1 "$(ZIP)" | grep -qx "$$file" || { \
 			echo "Missing expected file in $(ZIP): $$file" >&2; \
 			exit 1; \
@@ -70,7 +75,7 @@ package-content-check:
 		echo "Missing flag PNG assets in $(ZIP)" >&2; \
 		exit 1; \
 	}
-	@unexpected="$$(zipinfo -1 "$(ZIP)" | grep -Ev '^(metadata\.json|extension\.js|prefs\.js|stylesheet\.css|schemas/|schemas/$(SCHEMA)\.gschema\.xml|icons/|icons/default_map\.png|icons/flags/|icons/flags/[^/]+\.png)$$' || true)"; \
+	@unexpected="$$(zipinfo -1 "$(ZIP)" | grep -Ev '^(metadata\.json|extension\.js|prefs\.js|common\.js|stylesheet\.css|schemas/|schemas/$(SCHEMA)\.gschema\.xml|icons/|icons/default_map\.png|icons/flags/|icons/flags/[^/]+\.png)$$' || true)"; \
 	if test -n "$$unexpected"; then \
 		printf '%s\n' "$$unexpected"; \
 		echo "Unexpected file in $(ZIP)" >&2; \

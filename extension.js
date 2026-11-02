@@ -11,17 +11,16 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
+import {
+    SETTINGS_COMPACT_MODE, SETTINGS_REFRESH_RATE, SETTINGS_POSITION, SETTINGS_SHOW_MAP,
+    SETTINGS_SHOW_CIDR, SETTINGS_HIDDEN_IFACES, SETTINGS_NOTIFY_IP_CHANGE, SETTINGS_COPY_CIDR,
+    STATUS_PROTECTED, STATUS_LEAK, STATUS_EXPOSED, STATUS_OFFLINE,
+    assessSecurity, countryCode, describeResolvers, latLonToTile, parseIpAddr,
+    routeDevice, tunnelInterfaces,
+} from './common.js';
+
 const ICON_SIZE = 16;
 const MAP_ZOOM = 10;
-const SETTINGS_COMPACT_MODE = 'compact-mode';
-const SETTINGS_REFRESH_RATE = 'refresh-rate';
-const SETTINGS_POSITION = 'position-in-panel';
-const SETTINGS_SHOW_MAP = 'show-map';
-const SETTINGS_SHOW_CIDR = 'show-cidr-prefix';
-const SETTINGS_HIDDEN_IFACES = 'hidden-interfaces';
-const SETTINGS_NOTIFY_IP_CHANGE = 'notify-ip-change';
-const SETTINGS_COPY_CIDR = 'copy-cidr';
-const POSITION_NAMES = ['left', 'center', 'right'];
 
 // NetworkManager emits several signals per connect/disconnect; collapse them
 const NM_DEBOUNCE_SECONDS = 2;
@@ -31,161 +30,25 @@ const NM_MIN_INTERVAL_US = 10 * 1000 * 1000;
 const DNS_LEAK_HOST = 'dnsleak.am.i.mullvad.net';
 const MULLVAD_HOST = 'am.i.mullvad.net';
 
-// Build reverse mapping: English country name -> ISO 3166-1 alpha-2 code
-const COUNTRY_TO_CODE = {};
-const FLAG_CODES = [
-    'AD','AE','AF','AG','AI','AL','AM','AO','AQ','AR','AS','AT','AU','AW',
-    'AX','AZ','BA','BB','BD','BE','BF','BG','BH','BI','BJ','BL','BM','BN',
-    'BO','BQ','BR','BS','BT','BV','BW','BY','BZ','CA','CC','CD','CF','CG',
-    'CH','CI','CK','CL','CM','CN','CO','CR','CU','CV','CW','CX','CY','CZ',
-    'DE','DJ','DK','DM','DO','DZ','EC','EE','EG','EH','ER','ES','ET','FI',
-    'FJ','FK','FM','FO','FR','GA','GB','GD','GE','GF','GG','GH','GI','GL',
-    'GM','GN','GP','GQ','GR','GS','GT','GU','GW','GY','HK','HM','HN','HR',
-    'HT','HU','ID','IE','IL','IM','IN','IO','IQ','IR','IS','IT','JE','JM',
-    'JO','JP','KE','KG','KH','KI','KM','KN','KP','KR','KW','KY','KZ','LA',
-    'LB','LC','LI','LK','LR','LS','LT','LU','LV','LY','MA','MC','MD','ME',
-    'MF','MG','MH','MK','ML','MM','MN','MO','MP','MQ','MR','MS','MT','MU',
-    'MV','MW','MX','MY','MZ','NA','NC','NE','NF','NG','NI','NL','NO','NP',
-    'NR','NU','NZ','OM','PA','PE','PF','PG','PH','PK','PL','PM','PN','PR',
-    'PS','PT','PW','PY','QA','RE','RO','RS','RU','RW','SA','SB','SC','SD',
-    'SE','SG','SH','SI','SJ','SK','SL','SM','SN','SO','SR','SS','ST','SV',
-    'SX','SY','SZ','TC','TD','TF','TG','TH','TJ','TK','TL','TM','TN','TO',
-    'TR','TT','TV','TW','TZ','UA','UG','UM','US','UY','UZ','VA','VC','VE',
-    'VG','VI','VN','VU','WF','WS','YE','YT','ZA','ZM','ZW',
-];
-try {
-    const regionNames = new Intl.DisplayNames(['en'], {type: 'region'});
-    for (const code of FLAG_CODES) {
-        try {
-            const name = regionNames.of(code);
-            if (name)
-                COUNTRY_TO_CODE[name] = code;
-        } catch (_e) { /* skip unknown codes */ }
-    }
-} catch (_e) { /* Intl.DisplayNames not available */ }
-
-function _latLonToTile(lat, lon, zoom) {
-    const n = Math.pow(2, zoom);
-    const x = Math.floor((lon + 180) / 360 * n);
-    const latRad = lat * Math.PI / 180;
-    const y = Math.floor(
-        (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n
-    );
-    return {x, y};
-}
-
-function _ensureCacheDir() {
-    try {
-        const dir = Gio.File.new_for_path(
-            GLib.build_filenamev([GLib.get_user_cache_dir(), 'public-ip-extension'])
-        );
-        if (!dir.query_exists(null))
-            dir.make_directory_with_parents(null);
-        return dir.get_path();
-    } catch (e) {
-        console.error(`[Public IP] Cache dir creation failed: ${e.message}`);
-        return GLib.build_filenamev([GLib.get_user_cache_dir(), 'public-ip-extension']);
-    }
-}
-
-// Detect VPN provider from organization/ASN name
-const VPN_SIGNATURES = [
-    // -- Direct VPN providers --
-    ['proton', 'Proton VPN'],
-    ['nordvpn', 'NordVPN'],
-    ['tefincom', 'NordVPN'],
-    ['packethub', 'NordVPN'],
-    ['nordlayer', 'NordLayer'],
-    ['expressvpn', 'ExpressVPN'],
-    ['express vpn', 'ExpressVPN'],
-    ['surfshark', 'Surfshark'],
-    ['cyberzone', 'Surfshark'],
-    ['cyberghost', 'CyberGhost'],
-    ['private internet access', 'PIA'],
-    ['ivpn', 'IVPN'],
-    ['mullvad', 'Mullvad VPN'],
-    ['windscribe', 'Windscribe'],
-    ['hide.me', 'hide.me'],
-    ['eventure', 'hide.me'],
-    ['torguard', 'TorGuard'],
-    ['vyprvpn', 'VyprVPN'],
-    ['golden frog', 'VyprVPN'],
-    ['giganews', 'VyprVPN'],
-    ['azirevpn', 'AzireVPN'],
-    ['netbouncer', 'AzireVPN'],
-    ['airvpn', 'AirVPN'],
-    ['paolo brini', 'AirVPN'],
-    ['perfect privacy', 'Perfect Privacy'],
-    ['ipvanish', 'IPVanish'],
-    ['netprotect', 'IPVanish'],
-    ['hotspot shield', 'Hotspot Shield'],
-    ['anchorfree', 'Hotspot Shield'],
-    ['pango', 'Hotspot Shield'],
-    ['tunnelbear', 'TunnelBear'],
-    ['purevpn', 'PureVPN'],
-    ['gz systems', 'PureVPN'],
-    ['strongvpn', 'StrongVPN'],
-    ['privadovpn', 'PrivadoVPN'],
-    ['privado networks', 'PrivadoVPN'],
-    ['ovpn', 'OVPN'],
-    ['hidemyass', 'HMA'],
-    ['privax', 'HMA'],
-    ['njalla', 'Njalla VPN'],
-    ['1337 services', 'Njalla VPN'],
-    ['kaspersky', 'Kaspersky VPN'],
-    ['bitdefender', 'Bitdefender VPN'],
-    ['norton', 'Norton VPN'],
-    ['avast', 'Avast SecureLine'],
-    ['avira', 'Avira VPN'],
-    ['astrill', 'Astrill VPN'],
-    ['cryptostorm', 'Cryptostorm'],
-    ['vpn.ac', 'VPN.ac'],
-    ['privatevpn', 'PrivateVPN'],
-    ['pvdatanet', 'PrivateVPN'],
-    ['cactusvpn', 'CactusVPN'],
-    ['cactus vpn', 'CactusVPN'],
-    ['zenmate', 'ZenMate'],
-    ['psiphon', 'Psiphon'],
-    ['keepsolid', 'VPN Unlimited'],
-    ['speedify', 'Speedify'],
-    ['ivacy', 'Ivacy VPN'],
-    // -- High-confidence VPN infrastructure --
-    ['m247', 'VPN/Datacenter'],
-    ['datacamp', 'VPN/Datacenter'],
-    ['31173 services', 'VPN/Datacenter'],
-    ['tzulo', 'VPN/Datacenter'],
-    ['datapacket', 'VPN/Datacenter'],
-    ['100tb', 'VPN/Datacenter'],
-    ['obehosting', 'VPN/Datacenter'],
-    ['clouvider', 'VPN/Datacenter'],
-    ['hydra communications', 'VPN/Datacenter'],
-    ['internet vikings', 'VPN/Datacenter'],
-    ['blix', 'VPN/Datacenter'],
-    ['intergrid', 'VPN/Datacenter'],
-    ['invite systems', 'VPN/Datacenter'],
-    ['creanova', 'VPN/Datacenter'],
-    ['xtom', 'VPN/Datacenter'],
-    ['quadranet', 'VPN/Datacenter'],
-    ['zenlayer', 'VPN/Datacenter'],
-    ['stark industries', 'VPN/Datacenter'],
-    ['free range cloud', 'VPN/Datacenter'],
-];
-
-function _detectVpnProvider(orgLower) {
-    for (const [pattern, name] of VPN_SIGNATURES) {
-        if (orgLower.includes(pattern))
-            return name;
-    }
-    return null;
-}
-
-// Security status levels
-const STATUS_PROTECTED = 'protected';
-const STATUS_LEAK = 'leak';
-const STATUS_EXPOSED = 'exposed';
-const STATUS_OFFLINE = 'offline';
-
 Gio._promisify(Soup.Session.prototype, 'send_and_read_async');
+Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async');
+Gio._promisify(Gio.Resolver.prototype, 'lookup_by_name_async');
+Gio._promisify(Gio.File.prototype, 'delete_async');
+
+// One popup row: key label, value label, copy icon. Returns {item, label}.
+function createIpRow(key, valueStyle, text, onActivate) {
+    const item = new PopupMenu.PopupBaseMenuItem();
+    item.add_child(new St.Label({style_class: 'ip-info-key', text: key}));
+    const label = new St.Label({style_class: valueStyle, text, x_expand: true});
+    item.add_child(label);
+    item.add_child(new St.Icon({
+        icon_name: 'edit-copy-symbolic',
+        icon_size: 14,
+        style_class: 'ip-copy-icon',
+    }));
+    item.connect('activate', onActivate);
+    return {item, label};
+}
 
 const IPMenu = GObject.registerClass(
 class IPMenu extends PanelMenu.Button {
@@ -193,7 +56,6 @@ class IPMenu extends PanelMenu.Button {
         super._init(0.0, 'IP Details');
         this._extension = extension;
         this._settings = extension.getSettings();
-        this._textureCache = St.TextureCache.get_default();
         this._session = new Soup.Session();
         const userAgentVersion = extension.metadata.version ?? 'dev';
         this._session.set_user_agent(`GNOME-Public-IP-Extension/${userAgentVersion} (+${extension.metadata.url})`);
@@ -209,11 +71,14 @@ class IPMenu extends PanelMenu.Button {
         this._currentIPv4 = null;
         this._currentIPv6 = null;
         this._firstUpdate = true;
-        this._cacheDir = _ensureCacheDir();
+        // Last geo response and the RIPE prefix per family ({ip, prefix}); render reads these
+        this._geoData = null;
+        this._prefixes = {v4: null, v6: null};
+        this._removeLegacyMapCache();
 
         this._compactMode = this._settings.get_boolean(SETTINGS_COMPACT_MODE);
         this._refreshRate = Math.max(30, this._settings.get_int(SETTINGS_REFRESH_RATE));
-        this._menuPosition = POSITION_NAMES[this._settings.get_enum(SETTINGS_POSITION)] || 'right';
+        this._menuPosition = this._settings.get_string(SETTINGS_POSITION);
         this._showMap = this._settings.get_boolean(SETTINGS_SHOW_MAP);
         this._showCidr = this._settings.get_boolean(SETTINGS_SHOW_CIDR);
         this._hiddenIfaces = this._settings.get_strv(SETTINGS_HIDDEN_IFACES);
@@ -275,25 +140,18 @@ class IPMenu extends PanelMenu.Button {
         this._localSeparator = new PopupMenu.PopupSeparatorMenuItem('Local');
         this.menu.addMenuItem(this._localSeparator);
         this._localItems = [];
-        this._updateLocalIP();
 
         // Public IP section
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem('Public'));
 
-        this._ipv4Item = new PopupMenu.PopupBaseMenuItem();
-        this._ipv4Item.add_child(new St.Label({style_class: 'ip-info-key', text: 'IPv4  '}));
-        this._ipv4Label = new St.Label({style_class: 'ip-address', text: '...', x_expand: true});
-        this._ipv4Item.add_child(this._ipv4Label);
-        this._ipv4Item.add_child(new St.Icon({icon_name: 'edit-copy-symbolic', icon_size: 14, style_class: 'ip-copy-icon'}));
-        this._ipv4Item.connect('activate', () => this._copyToClipboard(this._currentIPv4));
+        const v4Row = createIpRow('IPv4  ', 'ip-address', '...', () => this._copyToClipboard(this._currentIPv4));
+        this._ipv4Item = v4Row.item;
+        this._ipv4Label = v4Row.label;
         this.menu.addMenuItem(this._ipv4Item);
 
-        this._ipv6Item = new PopupMenu.PopupBaseMenuItem();
-        this._ipv6Item.add_child(new St.Label({style_class: 'ip-info-key', text: 'IPv6  '}));
-        this._ipv6Label = new St.Label({style_class: 'ip-address-v6', text: '...', x_expand: true});
-        this._ipv6Item.add_child(this._ipv6Label);
-        this._ipv6Item.add_child(new St.Icon({icon_name: 'edit-copy-symbolic', icon_size: 14, style_class: 'ip-copy-icon'}));
-        this._ipv6Item.connect('activate', () => this._copyToClipboard(this._currentIPv6));
+        const v6Row = createIpRow('IPv6  ', 'ip-address-v6', '...', () => this._copyToClipboard(this._currentIPv6));
+        this._ipv6Item = v6Row.item;
+        this._ipv6Label = v6Row.label;
         this.menu.addMenuItem(this._ipv6Item);
 
         // Location + map section
@@ -305,13 +163,7 @@ class IPMenu extends PanelMenu.Button {
         geoContainer.add_child(this._mapInfo);
         this._mapInfo.visible = this._showMap;
 
-        if (this._showMap) {
-            this._mapInfo.add_child(new St.Icon({
-                gicon: Gio.icon_new_for_string(`${extension.path}/icons/default_map.png`),
-                icon_size: 160,
-                accessible_name: 'Map: loading',
-            }));
-        }
+        this._showDefaultMap('Map: loading');
 
         // Geo details
         const geoBox = new St.BoxLayout({style_class: 'ip-info-box', vertical: true});
@@ -383,8 +235,7 @@ class IPMenu extends PanelMenu.Button {
             case SETTINGS_COMPACT_MODE:
                 this._compactMode = this._settings.get_boolean(SETTINGS_COMPACT_MODE);
                 this._label.visible = !this._compactMode;
-                if (!this._compactMode)
-                    this._label.text = this._currentIPv4 || this._currentIPv6 || 'No Connection';
+                this._renderPanelLabel();
                 break;
             case SETTINGS_REFRESH_RATE:
                 this._refreshRate = Math.max(30, this._settings.get_int(SETTINGS_REFRESH_RATE));
@@ -392,19 +243,21 @@ class IPMenu extends PanelMenu.Button {
                 this._startTimer();
                 break;
             case SETTINGS_POSITION:
-                this._menuPosition = POSITION_NAMES[this._settings.get_enum(SETTINGS_POSITION)] || 'right';
+                this._menuPosition = this._settings.get_string(SETTINGS_POSITION);
                 this._resetPanelPos();
                 break;
             case SETTINGS_SHOW_MAP:
                 this._showMap = this._settings.get_boolean(SETTINGS_SHOW_MAP);
                 this._mapInfo.visible = this._showMap;
-                if (this._showMap && (this._currentIPv4 || this._currentIPv6))
-                    this._update();
+                if (this._showMap && this._geoData)
+                    this._fetchMap();
                 break;
             case SETTINGS_SHOW_CIDR:
                 this._showCidr = this._settings.get_boolean(SETTINGS_SHOW_CIDR);
                 if (this._showCidr)
                     this._fetchPrefixes(this._currentIPv4, this._currentIPv6).catch(() => {});
+                else
+                    this._renderIpRows();
                 break;
             case SETTINGS_HIDDEN_IFACES:
                 this._hiddenIfaces = this._settings.get_strv(SETTINGS_HIDDEN_IFACES);
@@ -439,7 +292,7 @@ class IPMenu extends PanelMenu.Button {
             name = `VPN: ${assessment.vpnProvider}. `;
             break;
         case STATUS_LEAK:
-            name = 'Warning: IPv6 leak. ';
+            name = `Warning: ${assessment.leakFamily} leak. `;
             break;
         case STATUS_EXPOSED:
             name = 'No VPN. ';
@@ -449,67 +302,36 @@ class IPMenu extends PanelMenu.Button {
             break;
         }
         name += `IP: ${this._currentIPv4 || this._currentIPv6 || 'unknown'}`;
-        const loc = this._locationLabel?.text;
+        const loc = this._locationLabel.text;
         if (loc) name += `, ${loc}`;
         this.accessible_name = name;
     }
 
-    _updateLocalIP() {
-        // Remove old dynamic items
-        for (const item of this._localItems)
-            item.destroy();
-        this._localItems = [];
-
-        // Built-in ignored prefixes (containers, virtual bridges)
-        const IGNORED = ['docker', 'br-', 'veth', 'virbr', 'lo'];
-
+    async _updateLocalIP() {
         try {
             const proc = Gio.Subprocess.new(
                 ['ip', '-o', 'addr', 'show', 'scope', 'global'],
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
             );
-            proc.communicate_utf8_async(null, null, (source, res) => {
-                try {
-                    const [, stdout] = source.communicate_utf8_finish(res);
-                    if (!stdout) return;
+            const [stdout] = await proc.communicate_utf8_async(null, this._cancellable);
+            if (this._cancellable.is_cancelled())
+                return;
 
-                    this._populateLocalIPs(stdout, IGNORED);
-                } catch (_e) {
-                    // Silent fail — local IPs are non-critical
-                }
-            });
+            // Destroy only now, right before populating: overlapping runs then
+            // cannot both leave rows behind, and the last completion wins.
+            for (const item of this._localItems)
+                item.destroy();
+            this._localItems = [];
+            this._populateLocalIPs(stdout ?? '');
         } catch (_e) {
             // Silent fail — local IPs are non-critical
         }
     }
 
-    _populateLocalIPs(stdout, IGNORED) {
-        // Group IPs by interface: {iface: [{ip, isV6}]}
-        const ifaces = new Map();
-        const lines = stdout.split('\n');
-        for (const line of lines) {
-            if (!line.trim()) continue;
-
-            const parts = line.trim().split(/\s+/);
-            const iface = parts[1];
-
-            // Skip built-in ignored + user-hidden interfaces
-            if (IGNORED.some(p => iface.startsWith(p)))
-                continue;
-            if (this._hiddenIfaces.includes(iface))
-                continue;
-
-            const isV6 = parts[2] === 'inet6';
-            const addrField = parts[3] || '';
-            const ip = addrField.split('/')[0];
-            const cidr = addrField; // e.g. "192.168.1.5/24"
-
-            if (!ip) continue;
-
-            if (!ifaces.has(iface))
-                ifaces.set(iface, []);
-            ifaces.get(iface).push({ip, cidr, isV6});
-        }
+    _populateLocalIPs(stdout) {
+        // Built-in ignored prefixes are dropped by the parser; hide user choices here
+        const ifaces = new Map([...parseIpAddr(stdout)]
+            .filter(([iface]) => !this._hiddenIfaces.includes(iface)));
 
         const sepIndex = this.menu._getMenuItems().indexOf(this._localSeparator);
         let insertPos = sepIndex + 1;
@@ -541,22 +363,12 @@ class IPMenu extends PanelMenu.Button {
 
             // IP rows under this interface
             for (const {ip, cidr, isV6} of addrs) {
-                const item = new PopupMenu.PopupBaseMenuItem();
-                item.add_child(new St.Label({
-                    style_class: 'ip-info-key',
-                    text: isV6 ? '  IPv6  ' : '  IPv4  ',
-                }));
-                item.add_child(new St.Label({
-                    style_class: isV6 ? 'ip-address-v6' : 'ip-address',
-                    text: cidr,
-                    x_expand: true,
-                }));
-                item.add_child(new St.Icon({
-                    icon_name: 'edit-copy-symbolic',
-                    icon_size: 14,
-                    style_class: 'ip-copy-icon',
-                }));
-                item.connect('activate', () => this._copyToClipboard(this._copyCidr ? cidr : ip));
+                const {item} = createIpRow(
+                    isV6 ? '  IPv6  ' : '  IPv4  ',
+                    isV6 ? 'ip-address-v6' : 'ip-address',
+                    cidr,
+                    () => this._copyToClipboard(this._copyCidr ? cidr : ip),
+                );
                 item.accessible_name = `${iface} ${isV6 ? 'IPv6' : 'IPv4'}: ${cidr}. Activate to copy.`;
                 this.menu.addMenuItem(item, insertPos);
                 this._localItems.push(item);
@@ -646,16 +458,51 @@ class IPMenu extends PanelMenu.Button {
         }
     }
 
-    _updateMapTile() {
-        const {scaleFactor} = St.ThemeContext.get_for_stage(global.stage);
+    _showDefaultMap(accessibleName) {
         this._mapInfo.destroy_all_children();
-        this._mapInfo.add_child(
-            this._textureCache.load_file_async(
-                Gio.File.new_for_path(`${this._cacheDir}/latest_map.png`),
-                -1, 160, 1, scaleFactor
-            )
+        this._mapInfo.add_child(new St.Icon({
+            gicon: Gio.icon_new_for_string(`${this._extension.path}/icons/default_map.png`),
+            icon_size: 160,
+            accessible_name: accessibleName,
+        }));
+    }
+
+    // Shown from memory only: the tile is never written to disk
+    _setMapTile(bytes) {
+        this._mapInfo.destroy_all_children();
+        this._mapInfo.add_child(new St.Icon({
+            gicon: Gio.BytesIcon.new(bytes),
+            icon_size: 160,
+            accessible_name: `Map: ${this._locationLabel.text || 'unknown location'}`,
+        }));
+    }
+
+    async _fetchMap() {
+        const geo = this._geoData;
+        if (!this._showMap || typeof geo?.latitude !== 'number' || typeof geo?.longitude !== 'number')
+            return;
+        try {
+            const {x, y} = latLonToTile(geo.latitude, geo.longitude, MAP_ZOOM);
+            const bytes = await this._fetchBytes(
+                `https://tile.openstreetmap.org/${MAP_ZOOM}/${x}/${y}.png`
+            );
+            // A newer IP change may have replaced the geo data while we waited
+            if (this._cancellable.is_cancelled() || this._geoData !== geo)
+                return;
+            this._setMapTile(bytes);
+        } catch (e) {
+            if (!this._cancellable.is_cancelled())
+                console.error(`[Public IP] Map download failed: ${e.message}`);
+        }
+    }
+
+    async _removeLegacyMapCache() {
+        // shortcut: removes the pre-0.3 cached map tile, delete this after a few releases
+        const dir = Gio.File.new_for_path(
+            GLib.build_filenamev([GLib.get_user_cache_dir(), 'public-ip-extension'])
         );
-        this._mapInfo.accessible_name = `Map: ${this._locationLabel?.text || 'unknown location'}`;
+        try { await dir.get_child('latest_map.png').delete_async(GLib.PRIORITY_DEFAULT, null); } catch (_e) { /* best effort */ }
+        try { await dir.delete_async(GLib.PRIORITY_DEFAULT, null); } catch (_e) { /* best effort */ }
     }
 
     _updateBlacklist(ipv4Data, ipv6Data) {
@@ -698,14 +545,20 @@ class IPMenu extends PanelMenu.Button {
                 GLib.random_int_range(0, 0x10000).toString(16).padStart(4, '0')
             ).join('');
 
-            await this._fetchText(`https://${id}.${DNS_LEAK_HOST}/`, 0);
+            // A plain system-resolver lookup is all Mullvad needs, and it
+            // bypasses any HTTP proxy so the result reflects the system resolver.
+            try {
+                await Gio.Resolver.get_default().lookup_by_name_async(
+                    `${id}.${DNS_LEAK_HOST}`, this._cancellable
+                );
+            } catch (_e) { /* only the lookup matters, not its answer */ }
             if (this._cancellable.is_cancelled()) return;
 
             const json = await this._fetchText(`https://${MULLVAD_HOST}/dnsleak/${id}`, 0);
             if (this._cancellable.is_cancelled()) return;
 
             const resolvers = JSON.parse(json);
-            this._showDnsResult(this._describeResolvers(resolvers));
+            this._showDnsResult(describeResolvers(resolvers));
         } catch (e) {
             if (!this._cancellable.is_cancelled()) {
                 this._showDnsResult('DNS test failed');
@@ -718,30 +571,6 @@ class IPMenu extends PanelMenu.Button {
         }
     }
 
-    _describeResolvers(resolvers) {
-        if (!Array.isArray(resolvers) || resolvers.length === 0)
-            return 'DNS: no resolvers reported';
-
-        if (resolvers.every(r => r?.mullvad_dns === true)) {
-            const n = resolvers.length;
-            return `DNS: ${n} resolver${n > 1 ? 's' : ''}, all Mullvad`;
-        }
-
-        // ponytail: "all Mullvad" is the only verdict this API actually proves.
-        // Everything else is reported as-is rather than guessed at - a resolver
-        // in another country is normal for anycast and must not cry leak.
-        // Upgrade path: compare against the exit country if false alarms prove rare.
-        const seen = [];
-        for (const r of resolvers) {
-            const who = r?.organization || r?.hostname || r?.ip || 'unknown';
-            const where = r?.country ? ` (${r.country})` : '';
-            const entry = `${who}${where}`;
-            if (!seen.includes(entry))
-                seen.push(entry);
-        }
-        return `DNS: ${seen.join(', ')}`;
-    }
-
     _showDnsResult(text) {
         this._dnsResultLabel.text = text;
         this._dnsResultItem.accessible_name = text;
@@ -750,63 +579,31 @@ class IPMenu extends PanelMenu.Button {
         Main.notify('DNS Leak Test', text);
     }
 
-    _assessSecurity(ipv4Data, ipv6Data) {
-        const hasV4 = !!ipv4Data;
-        const hasV6 = !!ipv6Data;
-
-        if (!hasV4 && !hasV6)
-            return {status: STATUS_OFFLINE, icon: 'network-offline-symbolic', text: 'No connection'};
-
-        const geoData = ipv4Data || ipv6Data;
-        const isMullvad = geoData.mullvad_exit_ip === true;
-        const org = (geoData.organization || '').toLowerCase();
-        const vpnProvider = isMullvad ? 'Mullvad VPN' : _detectVpnProvider(org);
-        const isVpn = !!vpnProvider;
-
-        // Check for IPv6 leak: both stacks available but different country/org
-        let ipv6Leak = false;
-        if (hasV4 && hasV6) {
-            const v4Country = ipv4Data.country || '';
-            const v6Country = ipv6Data.country || '';
-            const v4Org = (ipv4Data.organization || '').toLowerCase();
-            const v6Org = (ipv6Data.organization || '').toLowerCase();
-
-            // Leak = countries differ, or one is VPN infra and the other isn't
-            if (v4Country && v6Country && v4Country !== v6Country) {
-                ipv6Leak = true;
-            } else if (v4Org !== v6Org) {
-                const v4IsVpn = isMullvad || !!_detectVpnProvider(v4Org);
-                const v6IsVpn = ipv6Data.mullvad_exit_ip === true || !!_detectVpnProvider(v6Org);
-                if (v4IsVpn !== v6IsVpn)
-                    ipv6Leak = true;
+    // `ip route get` is a local FIB lookup and sends no packets, so the probe addresses are never contacted.
+    async _checkTunnels() {
+        const run = async argv => {
+            try {
+                const proc = Gio.Subprocess.new(
+                    argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE
+                );
+                const [stdout] = await proc.communicate_utf8_async(null, this._cancellable);
+                return proc.get_successful() ? stdout : null;
+            } catch (_e) {
+                return null;
             }
-        }
-
-        if (ipv6Leak) {
-            const leakSide = hasV4 ? `IPv6 via ${ipv6Data.organization || 'ISP'}` : 'IPv4 exposed';
-            return {
-                status: STATUS_LEAK,
-                icon: 'dialog-warning-symbolic',
-                text: `IPv6 Leak — ${leakSide}`,
-                vpnProvider,
-            };
-        }
-
-        if (isVpn) {
-            let text = vpnProvider;
-            if (isMullvad) {
-                const relay = geoData.mullvad_exit_ip_hostname || '';
-                const stype = geoData.mullvad_server_type || '';
-                if (relay) text += ` (${relay})`;
-                if (stype) text += ` [${stype}]`;
-            }
-            return {status: STATUS_PROTECTED, icon: 'security-high-symbolic', text, vpnProvider};
-        }
-
+        };
+        const [route4, route6, links] = await Promise.all([
+            run(['ip', '-j', 'route', 'get', '1.1.1.1']),
+            run(['ip', '-j', '-6', 'route', 'get', '2606:4700:4700::1111']),
+            run(['ip', '-j', '-d', 'link', 'show']),
+        ]);
+        // Route-based, not presence-based: a tunnel interface that is up but unused counts for nothing
+        const tunnels = tunnelInterfaces(links);
+        const dev4 = routeDevice(route4);
+        const dev6 = routeDevice(route6);
         return {
-            status: STATUS_EXPOSED,
-            icon: 'security-low-symbolic',
-            text: `Direct — ${geoData.organization || 'unknown ISP'}`,
+            v4: tunnels.has(dev4) ? dev4 : null,
+            v6: tunnels.has(dev6) ? dev6 : null,
         };
     }
 
@@ -820,22 +617,7 @@ class IPMenu extends PanelMenu.Button {
         this._statusDot.style_class = `panel-status-dot panel-status-${assessment.status}`;
         this._statusDot.accessible_name = assessment.text;
 
-        // Update banner style
-        this._statusBox.style_class = 'status-banner';
-        switch (assessment.status) {
-        case STATUS_PROTECTED:
-            this._statusBox.add_style_class_name('status-protected');
-            break;
-        case STATUS_LEAK:
-            this._statusBox.add_style_class_name('status-leak');
-            break;
-        case STATUS_EXPOSED:
-            this._statusBox.add_style_class_name('status-exposed');
-            break;
-        case STATUS_OFFLINE:
-            this._statusBox.add_style_class_name('status-offline');
-            break;
-        }
+        this._statusBox.style_class = `status-banner status-${assessment.status}`;
     }
 
     async _fetchPrefix(ip) {
@@ -865,25 +647,18 @@ class IPMenu extends PanelMenu.Button {
         const v4Prefix = results[0].status === 'fulfilled' ? results[0].value : null;
         const v6Prefix = results[1].status === 'fulfilled' ? results[1].value : null;
 
-        if (v4Prefix && this._currentIPv4) {
-            this._ipv4Label.text = `${this._currentIPv4}  ${v4Prefix}`;
-            this._ipv4Item.accessible_name = `Public IPv4: ${this._currentIPv4} ${v4Prefix}. Activate to copy.`;
-        }
-        if (v6Prefix && this._currentIPv6) {
-            this._ipv6Label.text = `${this._currentIPv6}  ${v6Prefix}`;
-            this._ipv6Item.accessible_name = `Public IPv6: ${this._currentIPv6} ${v6Prefix}. Activate to copy.`;
-        }
+        // Drop a late result for an IP that has since changed
+        if (v4Prefix && ipv4 === this._currentIPv4)
+            this._prefixes.v4 = {ip: ipv4, prefix: v4Prefix};
+        if (v6Prefix && ipv6 === this._currentIPv6)
+            this._prefixes.v6 = {ip: ipv6, prefix: v6Prefix};
+        this._renderIpRows();
     }
 
     async _fetchText(url, retries = 1) {
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
-                const message = Soup.Message.new('GET', url);
-                const bytes = await this._session.send_and_read_async(
-                    message, GLib.PRIORITY_DEFAULT, this._cancellable
-                );
-                if (message.status_code !== 200)
-                    throw new Error(`HTTP ${message.status_code}`);
+                const bytes = await this._fetchBytes(url);
                 return new TextDecoder().decode(bytes.get_data());
             } catch (e) {
                 if (attempt === retries)
@@ -902,6 +677,27 @@ class IPMenu extends PanelMenu.Button {
         return bytes;
     }
 
+    _renderPanelLabel() {
+        if (!this._compactMode)
+            this._label.text = this._currentIPv4 || this._currentIPv6 || 'No Connection';
+    }
+
+    // Both public IP rows, rendered from state: current IP, prefix, accessible name
+    _renderIpRows() {
+        const rows = [
+            ['IPv4', this._ipv4Item, this._ipv4Label, this._currentIPv4, this._prefixes.v4],
+            ['IPv6', this._ipv6Item, this._ipv6Label, this._currentIPv6, this._prefixes.v6],
+        ];
+        for (const [family, item, label, ip, prefixState] of rows) {
+            const prefix = this._showCidr && ip && prefixState?.ip === ip ? prefixState.prefix : null;
+            label.text = ip ? (prefix ? `${ip}  ${prefix}` : ip) : 'Unavailable';
+            item.sensitive = !!ip;
+            item.accessible_name = ip
+                ? `Public ${family}: ${ip}${prefix ? ` ${prefix}` : ''}. Activate to copy.`
+                : `Public ${family}: Unavailable`;
+        }
+    }
+
     async _update() {
         if (this._cancellable.is_cancelled())
             return;
@@ -915,22 +711,25 @@ class IPMenu extends PanelMenu.Button {
             this._statusIcon.icon_name = 'emblem-synchronizing-symbolic';
             this._statusLabel.text = 'Checking connection...';
             this._statusBox.style_class = 'status-banner status-checking';
-            if (this._refreshItem)
-                this._refreshItem.label.text = 'Refreshing...';
+            this._refreshItem.label.text = 'Refreshing...';
 
             this._updateLocalIP();
 
-            // Mullvad API: no-log, privacy-first VPN provider
-            const [ipv4Result, ipv6Result] = await Promise.allSettled([
+            // Mullvad API: no-log, privacy-first VPN provider. The local route
+            // check runs alongside; it never rejects.
+            const [ipv4Result, ipv6Result, tunnelResult] = await Promise.allSettled([
                 this._fetchText('https://ipv4.am.i.mullvad.net/json'),
                 this._fetchText('https://ipv6.am.i.mullvad.net/json'),
+                this._checkTunnels(),
             ]);
 
             if (this._cancellable.is_cancelled()) return;
 
-            if (ipv4Result.status === 'rejected')
+            // A family without connectivity fails on every poll: log the first
+            // failure, not each repeat
+            if (ipv4Result.status === 'rejected' && (this._firstUpdate || this._currentIPv4))
                 console.error(`[Public IP] IPv4 fetch failed: ${ipv4Result.reason}`);
-            if (ipv6Result.status === 'rejected')
+            if (ipv6Result.status === 'rejected' && (this._firstUpdate || this._currentIPv6))
                 console.error(`[Public IP] IPv6 fetch failed: ${ipv6Result.reason}`);
 
             // Parse JSON individually so one failure doesn't block the other
@@ -943,26 +742,12 @@ class IPMenu extends PanelMenu.Button {
 
             const ipv4 = ipv4Data?.ip || null;
             const ipv6 = ipv6Data?.ip || null;
-
-            // Update IP labels (prefix added async below on IP change)
-            this._ipv4Label.text = ipv4 || 'Unavailable';
-            this._ipv6Label.text = ipv6 || 'Unavailable';
-            this._ipv4Item.sensitive = !!ipv4;
-            this._ipv6Item.sensitive = !!ipv6;
-
-            if (!this._compactMode)
-                this._label.text = ipv4 || ipv6 || 'No Connection';
-
-            // Accessible names for IP rows
-            this._ipv4Item.accessible_name = ipv4
-                ? `Public IPv4: ${ipv4}. Activate to copy.`
-                : 'Public IPv4: Unavailable';
-            this._ipv6Item.accessible_name = ipv6
-                ? `Public IPv6: ${ipv6}. Activate to copy.`
-                : 'Public IPv6: Unavailable';
+            const tunnels = tunnelResult.status === 'fulfilled'
+                ? tunnelResult.value
+                : {v4: null, v6: null};
 
             // Security assessment (uses both IPv4 and IPv6 data)
-            const assessment = this._assessSecurity(ipv4Data, ipv6Data);
+            const assessment = assessSecurity(ipv4Data, ipv6Data, tunnels);
             this._updateSecurityBanner(assessment);
             this._updateBlacklist(ipv4Data, ipv6Data);
 
@@ -982,7 +767,7 @@ class IPMenu extends PanelMenu.Button {
                 const newIp = ipv4 || ipv6 || 'none';
                 let body = `${oldIp} → ${newIp}`;
                 if (assessment.status === STATUS_LEAK)
-                    body += '\nWarning: IPv6 leak detected!';
+                    body += `\nWarning: ${assessment.leakFamily} leak detected!`;
                 else if (assessment.status === STATUS_EXPOSED)
                     body += '\nWarning: No VPN, direct connection';
                 else if (assessment.status === STATUS_PROTECTED)
@@ -990,9 +775,17 @@ class IPMenu extends PanelMenu.Button {
                 Main.notify('IP Address Changed', body);
             }
 
+            // A prefix belongs to one IP: forget it when that family's IP changes
+            if (ipv4 !== this._currentIPv4)
+                this._prefixes.v4 = null;
+            if (ipv6 !== this._currentIPv6)
+                this._prefixes.v6 = null;
+
             this._currentIPv4 = ipv4;
             this._currentIPv6 = ipv6;
             this._firstUpdate = false;
+            this._renderIpRows();
+            this._renderPanelLabel();
             this._updateAccessibleName(assessment);
 
             if (!ipChanged)
@@ -1000,8 +793,15 @@ class IPMenu extends PanelMenu.Button {
 
             // Use IPv4 data (or IPv6 fallback) for geo details
             const geoData = ipv4Data || ipv6Data;
-            if (!geoData)
+            this._geoData = geoData;
+            if (!geoData) {
+                // Offline: drop everything that described the previous connection
+                this._locationLabel.text = '';
+                this._orgLabel.text = '';
+                this._geoItem.accessible_name = '';
+                this._showDefaultMap('Map: unavailable');
                 return;
+            }
 
             // Update location label: "City, Country"
             const city = geoData.city || '';
@@ -1016,47 +816,24 @@ class IPMenu extends PanelMenu.Button {
                 `Location: ${this._locationLabel.text}. ISP: ${this._orgLabel.text}`;
 
             // Resolve country name to ISO code for flag icon
-            if (country) {
-                const code = COUNTRY_TO_CODE[country];
-                if (code) {
-                    this._icon.gicon = Gio.icon_new_for_string(
-                        `${this._extension.path}/icons/flags/${code}.png`
-                    );
-                    this._icon.accessible_name = country;
-                }
+            const code = countryCode(country);
+            if (code) {
+                this._icon.gicon = Gio.icon_new_for_string(
+                    `${this._extension.path}/icons/flags/${code}.png`
+                );
+                this._icon.accessible_name = country;
+            } else {
+                this._icon.gicon = null;
+                this._icon.icon_name = 'network-idle-symbolic';
+                this._icon.accessible_name = country || 'Unknown location';
             }
-
-            if (this._cancellable.is_cancelled()) return;
 
             // Fetch CIDR prefix from RIPE STAT (opt-in, sends IP to third party)
             if (this._showCidr)
                 this._fetchPrefixes(ipv4, ipv6).catch(() => {});
 
             // Fetch map tile from OpenStreetMap (only if enabled)
-            if (this._showMap
-                && typeof geoData.latitude === 'number'
-                && typeof geoData.longitude === 'number') {
-                try {
-                    const {x, y} = _latLonToTile(
-                        geoData.latitude, geoData.longitude, MAP_ZOOM
-                    );
-                    const mapBytes = await this._fetchBytes(
-                        `https://tile.openstreetmap.org/${MAP_ZOOM}/${x}/${y}.png`
-                    );
-                    if (this._cancellable.is_cancelled()) return;
-                    const file = Gio.File.new_for_path(
-                        `${this._cacheDir}/latest_map.png`
-                    );
-                    file.replace_contents(
-                        mapBytes.get_data(), null, false,
-                        Gio.FileCreateFlags.NONE, null
-                    );
-                    this._updateMapTile();
-                } catch (e) {
-                    if (!this._cancellable.is_cancelled())
-                        console.error(`[Public IP] Map download failed: ${e.message}`);
-                }
-            }
+            this._fetchMap();
         } catch (e) {
             if (!this._cancellable.is_cancelled()) {
                 console.error(`[Public IP] Update failed: ${e.message}`);
@@ -1067,7 +844,7 @@ class IPMenu extends PanelMenu.Button {
                 });
             }
         } finally {
-            if (this._refreshItem)
+            if (!this._cancellable.is_cancelled())
                 this._refreshItem.label.text = 'Refresh';
             this._updating = false;
             if (this._pendingUpdate && !this._cancellable.is_cancelled()) {

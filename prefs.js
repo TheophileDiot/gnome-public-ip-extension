@@ -5,16 +5,11 @@ import GLib from 'gi://GLib';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-const SETTINGS_COMPACT_MODE = 'compact-mode';
-const SETTINGS_REFRESH_RATE = 'refresh-rate';
-const SETTINGS_POSITION = 'position-in-panel';
-const SETTINGS_SHOW_MAP = 'show-map';
-const SETTINGS_SHOW_CIDR = 'show-cidr-prefix';
-const SETTINGS_HIDDEN_IFACES = 'hidden-interfaces';
-const SETTINGS_NOTIFY_IP_CHANGE = 'notify-ip-change';
-const SETTINGS_COPY_CIDR = 'copy-cidr';
-
-const BUILTIN_IGNORED = ['docker', 'br-', 'veth', 'virbr', 'lo'];
+import {
+    SETTINGS_COMPACT_MODE, SETTINGS_REFRESH_RATE, SETTINGS_POSITION, SETTINGS_SHOW_MAP,
+    SETTINGS_SHOW_CIDR, SETTINGS_HIDDEN_IFACES, SETTINGS_NOTIFY_IP_CHANGE, SETTINGS_COPY_CIDR,
+    parseIpAddr,
+} from './common.js';
 
 function _discoverInterfaces() {
     try {
@@ -25,16 +20,7 @@ function _discoverInterfaces() {
         const [ok, stdout] = proc.communicate_utf8(null, null);
         if (!ok || !stdout)
             return [];
-        const seen = new Set();
-        const lines = stdout.split('\n');
-        for (const line of lines) {
-            if (!line.trim()) continue;
-            const iface = line.trim().split(/\s+/)[1];
-            if (BUILTIN_IGNORED.some(p => iface.startsWith(p)))
-                continue;
-            seen.add(iface);
-        }
-        return [...seen];
+        return [...parseIpAddr(stdout).keys()];
     } catch (_e) {
         return [];
     }

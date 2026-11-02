@@ -9,7 +9,7 @@ The extension sends requests only to the services documented in `README.md`:
 - Mullvad API for the core public IP and VPN status check.
 - OpenStreetMap tiles only when map display is enabled.
 - RIPE NCC Stat only when CIDR prefix display is enabled.
-- Mullvad DNS leak check only when the user clicks **Test DNS leak** in the menu. It resolves a random one-off subdomain of `dnsleak.am.i.mullvad.net`, which by design exposes that lookup to whichever DNS resolver the system is using.
+- Mullvad DNS leak check only when the user clicks **Test DNS leak** in the menu. It performs a plain system-resolver lookup of a random one-off subdomain of `dnsleak.am.i.mullvad.net` (a DNS lookup only, no HTTPS request to that host), which by design exposes that lookup to whichever DNS resolver the system is using, then asks `am.i.mullvad.net` which resolvers it saw.
 
 No project can make supply-chain compromise impossible. This repository keeps the release path small and auditable so a maintainer can detect and block risky changes before upload.
 
@@ -55,7 +55,7 @@ Before tagging a release:
 1. Review the full diff, including workflow, packaging, schema, and metadata changes.
 2. Treat green CI as insufficient if the PR changes automation files; review those files manually.
 3. Run `make release-check`.
-4. Confirm the ZIP contains only runtime files: `metadata.json`, `extension.js`, `prefs.js`, `stylesheet.css`, the schema XML, and bundled icons.
+4. Confirm the ZIP contains only runtime files: `metadata.json`, `extension.js`, `prefs.js`, `common.js`, `stylesheet.css`, the schema XML, and bundled icons.
 5. Confirm `schemas/gschemas.compiled`, `dist/`, screenshots, docs, and local-only files are not in the release ZIP.
 6. Confirm network services are still documented in `README.md`.
 7. Tag only the reviewed `main` commit.
