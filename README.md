@@ -24,7 +24,7 @@ Shows your public IP address with VPN detection, IPv6 leak warnings, and a secur
 
 ## Requirements
 
-- GNOME Shell 45, 46, 47, or 48
+- GNOME Shell 45, 46, 47, 48, 49, 50, or 51
 
 ## Install
 
