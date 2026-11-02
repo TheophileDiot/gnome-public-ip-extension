@@ -1,0 +1,23 @@
+VERSION
+  s_c5c9b4c3a28514::t_5bf45a96607493 1
+metadata.json
+  s_c5c9b4c3a28514::t_5bf45a96607493 8
+README.md
+  s_c5c9b4c3a28514::t_5bf45a96607493 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "52fd80f4a19ebe3a3c05147a5bbedc380c10d1f0",
+  "prompts": {},
+  "sessions": {
+    "s_c5c9b4c3a28514": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30b23551-d99f-43da-82d5-481ef27fe7c2",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "TheophileDiot <tdiot@bunkerity.com>"
+    }
+  }
+}
