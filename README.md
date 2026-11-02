@@ -17,6 +17,11 @@ Shows your public IP address with VPN detection, IPv6 leak warnings, and a secur
 - **Map tile** — opt-in, from OpenStreetMap
 - **CIDR prefix** — opt-in, from RIPE NCC
 
+### Leak detection limits
+
+- The local check sees only WireGuard, `tun` and `xfrm` interfaces. A route through any other tunnel kind, or policy-based IPsec that has no interface, falls back to Mullvad's remote view of the exit IP.
+- A WireGuard tunnel used only for IPv6 connectivity, with IPv4 going out directly, is reported as an "IPv4 Leak".
+
 ## Requirements
 
 - GNOME Shell 45, 46, 47, or 48

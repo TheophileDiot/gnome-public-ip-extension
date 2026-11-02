@@ -5,8 +5,8 @@ Thanks for helping improve Public IP Address+. Keep changes focused, reproducibl
 ## Branches
 
 - Open normal pull requests against `dev`.
-- Keep `main` for release-ready code and release tags.
-- Release PRs should merge `dev` into `main`, then tag the merged `main` commit.
+- Keep `master` for release-ready code and release tags.
+- Release PRs should merge `dev` into `master`, then tag the merged `master` commit.
 
 ## Issues
 

@@ -7,8 +7,8 @@ This repository tracks source releases with `VERSION` and matching Git tags such
 ## Branches
 
 - `dev` is the integration branch for feature work, fixes, and Dependabot updates.
-- `main` is the release branch.
-- Open release PRs from `dev` to `main`, then tag the merged `main` commit.
+- `master` is the release branch.
+- Open release PRs from `dev` to `master`, then tag the merged `master` commit.
 
 ## Prepare a Release
 
@@ -36,12 +36,12 @@ make release-check
    - `schemas/org.gnome.shell.extensions.public-ip-address.gschema.xml`
    - bundled icon files under `icons/`
 5. Commit the release changes.
-6. Merge `dev` into `main`.
-7. Tag the merged `main` commit:
+6. Merge `dev` into `master`.
+7. Tag the merged `master` commit:
 
 ```bash
 git tag v$(cat VERSION)
-git push origin main v$(cat VERSION)
+git push origin master v$(cat VERSION)
 ```
 
 ## Manual GNOME Upload

@@ -154,8 +154,7 @@ const FLAG_CODES = [
 
 const COUNTRY_TO_CODE = {};
 // Mullvad returns country names only (no ISO code). Long names first so a short
-// alias never overwrites one; short style adds "Hong Kong", "Macao", "Myanmar",
-// "Palestine" and "Bosnia", which is how Mullvad spells them.
+// alias never overwrites one; the short style adds "Hong Kong" and "UK".
 for (const style of ['long', 'short']) {
     try {
         const regionNames = new Intl.DisplayNames(['en'], {type: 'region', style});
@@ -169,8 +168,12 @@ for (const style of ['long', 'short']) {
     } catch (_e) { /* Intl.DisplayNames not available */ }
 }
 
+// Mullvad spellings Intl does not produce: the relay list at
+// api.mullvad.net/www/relays/all/ (50 countries, checked 2026-11-02) has these three
+const MULLVAD_ALIASES = {'USA': 'US', 'Czech Republic': 'CZ', 'Turkey': 'TR'};
+
 export function countryCode(name) {
-    return (name && COUNTRY_TO_CODE[name]) || null;
+    return (name && (COUNTRY_TO_CODE[name] || MULLVAD_ALIASES[name])) || null;
 }
 
 export function latLonToTile(lat, lon, zoom) {

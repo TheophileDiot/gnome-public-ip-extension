@@ -42,7 +42,7 @@ Enable these GitHub repository protections before accepting outside contribution
 
 - Secret scanning and push protection.
 - Dependabot alerts and Dependabot security updates.
-- Branch protection for `dev` and `main`, including required pull request review.
+- Branch protection for `dev` and `master`, including required pull request review.
 - Code owner review for workflow, packaging, metadata, schema, and runtime changes.
 - Required status checks from the protected base branch before merging PRs.
 - Restricted tag creation for release tags such as `v*`, if available for the repository.
@@ -58,5 +58,5 @@ Before tagging a release:
 4. Confirm the ZIP contains only runtime files: `metadata.json`, `extension.js`, `prefs.js`, `common.js`, `stylesheet.css`, the schema XML, and bundled icons.
 5. Confirm `schemas/gschemas.compiled`, `dist/`, screenshots, docs, and local-only files are not in the release ZIP.
 6. Confirm network services are still documented in `README.md`.
-7. Tag only the reviewed `main` commit.
+7. Tag only the reviewed `master` commit.
 8. Upload the reviewed release artifact to `extensions.gnome.org`.

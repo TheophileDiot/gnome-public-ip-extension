@@ -117,7 +117,64 @@ eq(tunnelInterfaces(null).size, 0, 'tunnelInterfaces: null');
 eq(countryCode('Hong Kong'), 'HK', 'countryCode: Hong Kong (short)');
 eq(countryCode('Hong Kong SAR China'), 'HK', 'countryCode: Hong Kong (long)');
 eq(countryCode('Germany'), 'DE', 'countryCode: Germany');
+eq(countryCode('USA'), 'US', 'countryCode: USA');
 eq(countryCode('Atlantis'), null, 'countryCode: unknown');
+
+// Country names in Mullvad's relay list (api.mullvad.net/www/relays/all/), checked 2026-11-02
+const MULLVAD_COUNTRIES = [
+    'Albania',
+    'Argentina',
+    'Australia',
+    'Austria',
+    'Belgium',
+    'Brazil',
+    'Bulgaria',
+    'Canada',
+    'Chile',
+    'Colombia',
+    'Croatia',
+    'Cyprus',
+    'Czech Republic',
+    'Denmark',
+    'Estonia',
+    'Finland',
+    'France',
+    'Germany',
+    'Greece',
+    'Hong Kong',
+    'Hungary',
+    'Indonesia',
+    'Ireland',
+    'Israel',
+    'Italy',
+    'Japan',
+    'Malaysia',
+    'Mexico',
+    'Netherlands',
+    'New Zealand',
+    'Nigeria',
+    'Norway',
+    'Peru',
+    'Philippines',
+    'Poland',
+    'Portugal',
+    'Romania',
+    'Serbia',
+    'Singapore',
+    'Slovakia',
+    'Slovenia',
+    'South Africa',
+    'Spain',
+    'Sweden',
+    'Switzerland',
+    'Thailand',
+    'Turkey',
+    'UK',
+    'USA',
+    'Ukraine',
+];
+for (const name of MULLVAD_COUNTRIES)
+    eq(countryCode(name) !== null, true, `countryCode: Mullvad relay country ${name}`);
 eq(countryCode(''), null, 'countryCode: empty');
 
 // --- latLonToTile / describeResolvers --------------------------------------

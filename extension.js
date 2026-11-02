@@ -29,6 +29,10 @@ const NM_DEBOUNCE_SECONDS = 2;
 const NM_MIN_INTERVAL_US = 10 * 1000 * 1000;
 const DNS_LEAK_HOST = 'dnsleak.am.i.mullvad.net';
 const MULLVAD_HOST = 'am.i.mullvad.net';
+// St `orientation` exists from GNOME 48 and `vertical` was removed in 51; 45-47 only know `vertical`
+const VERTICAL = St.BoxLayout.find_property('orientation')
+    ? {orientation: Clutter.Orientation.VERTICAL}
+    : {vertical: true};
 
 Gio._promisify(Soup.Session.prototype, 'send_and_read_async');
 Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async');
@@ -140,6 +144,8 @@ class IPMenu extends PanelMenu.Button {
         this._localSeparator = new PopupMenu.PopupSeparatorMenuItem('Local');
         this.menu.addMenuItem(this._localSeparator);
         this._localItems = [];
+        // Parsed, filtered interfaces the current rows were built from
+        this._localKey = null;
 
         // Public IP section
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem('Public'));
@@ -166,7 +172,7 @@ class IPMenu extends PanelMenu.Button {
         this._showDefaultMap('Map: loading');
 
         // Geo details
-        const geoBox = new St.BoxLayout({style_class: 'ip-info-box', vertical: true});
+        const geoBox = new St.BoxLayout({style_class: 'ip-info-box', ...VERTICAL});
 
         // Location: "City, Country"
         const locRow = new St.BoxLayout();
@@ -268,7 +274,6 @@ class IPMenu extends PanelMenu.Button {
                 break;
             case SETTINGS_COPY_CIDR:
                 this._copyCidr = this._settings.get_boolean(SETTINGS_COPY_CIDR);
-                this._updateLocalIP();
                 break;
             }
         });
@@ -317,22 +322,30 @@ class IPMenu extends PanelMenu.Button {
             if (this._cancellable.is_cancelled())
                 return;
 
+            // Built-in ignored prefixes are dropped by the parser; hide user choices here
+            const ifaces = new Map([...parseIpAddr(stdout ?? '')]
+                .filter(([iface]) => !this._hiddenIfaces.includes(iface)));
+
+            // Rebuilding while the menu is open flickers the rows. Key on the parsed,
+            // filtered rows, not the raw output: its lifetime counters change every poll.
+            // _copyCidr is read on activation, so it needs no rebuild.
+            const key = JSON.stringify([...ifaces]);
+            if (key === this._localKey)
+                return;
+
             // Destroy only now, right before populating: overlapping runs then
             // cannot both leave rows behind, and the last completion wins.
             for (const item of this._localItems)
                 item.destroy();
             this._localItems = [];
-            this._populateLocalIPs(stdout ?? '');
+            this._populateLocalIPs(ifaces);
+            this._localKey = key;
         } catch (_e) {
             // Silent fail — local IPs are non-critical
         }
     }
 
-    _populateLocalIPs(stdout) {
-        // Built-in ignored prefixes are dropped by the parser; hide user choices here
-        const ifaces = new Map([...parseIpAddr(stdout)]
-            .filter(([iface]) => !this._hiddenIfaces.includes(iface)));
-
+    _populateLocalIPs(ifaces) {
         const sepIndex = this.menu._getMenuItems().indexOf(this._localSeparator);
         let insertPos = sepIndex + 1;
 
@@ -479,8 +492,13 @@ class IPMenu extends PanelMenu.Button {
 
     async _fetchMap() {
         const geo = this._geoData;
-        if (!this._showMap || typeof geo?.latitude !== 'number' || typeof geo?.longitude !== 'number')
+        if (!this._showMap)
             return;
+        if (typeof geo?.latitude !== 'number' || typeof geo?.longitude !== 'number') {
+            if (!this._cancellable.is_cancelled())
+                this._showDefaultMap('Map: unavailable');
+            return;
+        }
         try {
             const {x, y} = latLonToTile(geo.latitude, geo.longitude, MAP_ZOOM);
             const bytes = await this._fetchBytes(
@@ -491,8 +509,11 @@ class IPMenu extends PanelMenu.Button {
                 return;
             this._setMapTile(bytes);
         } catch (e) {
-            if (!this._cancellable.is_cancelled())
+            if (!this._cancellable.is_cancelled()) {
                 console.error(`[Public IP] Map download failed: ${e.message}`);
+                if (this._geoData === geo)
+                    this._showDefaultMap('Map: unavailable');
+            }
         }
     }
 
@@ -698,6 +719,42 @@ class IPMenu extends PanelMenu.Button {
         }
     }
 
+    _renderGeo(geoData) {
+        if (!geoData) {
+            // Offline: drop everything that described the previous connection
+            this._locationLabel.text = '';
+            this._orgLabel.text = '';
+            this._geoItem.accessible_name = '';
+            this._showDefaultMap('Map: unavailable');
+            return;
+        }
+
+        // Update location label: "City, Country"
+        const city = geoData.city || '';
+        const country = geoData.country || '';
+        if (city && country)
+            this._locationLabel.text = `${city}, ${country}`;
+        else
+            this._locationLabel.text = city || country || '';
+
+        this._orgLabel.text = geoData.organization || '';
+        this._geoItem.accessible_name =
+            `Location: ${this._locationLabel.text}. ISP: ${this._orgLabel.text}`;
+
+        // Resolve country name to ISO code for flag icon
+        const code = countryCode(country);
+        if (code) {
+            this._icon.gicon = Gio.icon_new_for_string(
+                `${this._extension.path}/icons/flags/${code}.png`
+            );
+            this._icon.accessible_name = country;
+        } else {
+            this._icon.gicon = null;
+            this._icon.icon_name = 'network-idle-symbolic';
+            this._icon.accessible_name = country || 'Unknown location';
+        }
+    }
+
     async _update() {
         if (this._cancellable.is_cancelled())
             return;
@@ -786,52 +843,24 @@ class IPMenu extends PanelMenu.Button {
             this._firstUpdate = false;
             this._renderIpRows();
             this._renderPanelLabel();
+
+            // Geo labels first: the accessible name below reads the location label
+            if (ipChanged) {
+                // Use IPv4 data (or IPv6 fallback) for geo details
+                this._geoData = ipv4Data || ipv6Data;
+                this._renderGeo(this._geoData);
+            }
             this._updateAccessibleName(assessment);
 
-            if (!ipChanged)
+            if (!ipChanged || !this._geoData)
                 return;
-
-            // Use IPv4 data (or IPv6 fallback) for geo details
-            const geoData = ipv4Data || ipv6Data;
-            this._geoData = geoData;
-            if (!geoData) {
-                // Offline: drop everything that described the previous connection
-                this._locationLabel.text = '';
-                this._orgLabel.text = '';
-                this._geoItem.accessible_name = '';
-                this._showDefaultMap('Map: unavailable');
-                return;
-            }
-
-            // Update location label: "City, Country"
-            const city = geoData.city || '';
-            const country = geoData.country || '';
-            if (city && country)
-                this._locationLabel.text = `${city}, ${country}`;
-            else
-                this._locationLabel.text = city || country || '';
-
-            this._orgLabel.text = geoData.organization || '';
-            this._geoItem.accessible_name =
-                `Location: ${this._locationLabel.text}. ISP: ${this._orgLabel.text}`;
-
-            // Resolve country name to ISO code for flag icon
-            const code = countryCode(country);
-            if (code) {
-                this._icon.gicon = Gio.icon_new_for_string(
-                    `${this._extension.path}/icons/flags/${code}.png`
-                );
-                this._icon.accessible_name = country;
-            } else {
-                this._icon.gicon = null;
-                this._icon.icon_name = 'network-idle-symbolic';
-                this._icon.accessible_name = country || 'Unknown location';
-            }
 
             // Fetch CIDR prefix from RIPE STAT (opt-in, sends IP to third party)
             if (this._showCidr)
                 this._fetchPrefixes(ipv4, ipv6).catch(() => {});
 
+            // Drop the old place's tile now: _fetchMap() may return early or fail
+            this._showDefaultMap('Map: loading');
             // Fetch map tile from OpenStreetMap (only if enabled)
             this._fetchMap();
         } catch (e) {

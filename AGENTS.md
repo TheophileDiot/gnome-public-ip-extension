@@ -97,7 +97,7 @@ Do not add a separate `_destroyed` boolean — extensions.gnome.org review rejec
 
 ## Workflow
 
-PRs target `dev`; `main` is the release branch and carries the tags. See `RELEASE.md` for tagging and
+PRs target `dev`; `master` is the release branch and carries the tags. See `RELEASE.md` for tagging and
 the extensions.gnome.org upload, `CONTRIBUTING.md` for the security expectations around GitHub Actions
 (pin third-party actions to a 40-char SHA; fork PRs may not touch workflows/Makefile).
 
